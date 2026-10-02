@@ -1,14 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../app_theme.dart';
-import '../widgets/menu_card.dart';
 import 'login_screen.dart';
 
-/// Pantalla principal después del login.
-/// Muestra las cards del menú: Ventas, Productos, Inventario.
-class HomeScreen extends StatelessWidget {
+/// Pantalla principal después del login (Punto de Venta).
+/// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
+class HomeScreen extends StatefulWidget {
   final String userType;
 
   const HomeScreen({super.key, required this.userType});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String _moduloSeleccionado = 'Ventas';
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   void _cerrarSesion(BuildContext context) {
     Navigator.pushReplacement(
@@ -43,212 +65,475 @@ class HomeScreen extends StatelessWidget {
     }
   }
 
+  Color _obtenerColorModulo(String modulo) {
+    switch (modulo) {
+      case 'Ventas':
+        return AppColors.ventasIcon;
+      case 'Productos':
+        return AppColors.productosIcon;
+      case 'Inventario':
+        return AppColors.inventarioIcon;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  IconData _obtenerIconoModulo(String modulo) {
+    switch (modulo) {
+      case 'Ventas':
+        return Icons.point_of_sale_rounded;
+      case 'Productos':
+        return Icons.inventory_2_outlined;
+      case 'Inventario':
+        return Icons.warehouse_outlined;
+      default:
+        return Icons.apps_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 80,
-        elevation: 3,
-        shadowColor: Colors.black.withAlpha(50),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
+      body: KeyboardListener(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: (event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.f1) {
+              setState(() => _moduloSeleccionado = 'Ventas');
+            } else if (event.logicalKey == LogicalKeyboardKey.f2) {
+              setState(() => _moduloSeleccionado = 'Productos');
+            } else if (event.logicalKey == LogicalKeyboardKey.f3) {
+              setState(() => _moduloSeleccionado = 'Inventario');
+            }
+          }
+        },
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(35),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.storefront_rounded,
-                size: 26,
-                color: AppColors.textOnPrimary,
-              ),
-            ),
-            const SizedBox(width: 14),
-            const Text(
-              'ABARROTES 3M',
-              style: TextStyle(
-                fontSize: 23,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.8,
-                color: AppColors.textOnPrimary,
-              ),
+            // 1. Barra superior de marca e información de usuario
+            _buildEncabezadoSuperior(context),
+
+            // 2. Barra de herramientas de navegación superior (estilo eleventa)
+            _buildBarraBotonesSuperior(context),
+
+            // 3. Franja / Banner del módulo activo
+            _buildBannerModuloActivo(),
+
+            // 4. Área de trabajo inferior (donde luego se desplegarán las opciones)
+            Expanded(
+              child: _buildAreaTrabajo(),
             ),
           ],
         ),
-        actions: [
-          // Chip refinado con el tipo de usuario
-          Center(
-            child: Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(35),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: Colors.white.withAlpha(60),
-                  width: 1.5,
-                ),
+      ),
+    );
+  }
+
+  /// Barra superior con el logotipo de la tienda y el usuario activo
+  Widget _buildEncabezadoSuperior(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: const BoxDecoration(
+        color: AppColors.primary,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Logo e Identidad
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(35),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.storefront_rounded,
+              size: 20,
+              color: AppColors.textOnPrimary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'ABARROTES 3M',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+              color: AppColors.textOnPrimary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.accent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              'PUNTO DE VENTA',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.0,
+                color: Colors.white,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    userType == 'Administrador'
-                        ? Icons.admin_panel_settings_rounded
-                        : Icons.person_rounded,
-                    size: 18,
+            ),
+          ),
+          const Spacer(),
+
+          // Indicador de usuario: "Le atiende: [userType]"
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(35),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withAlpha(60),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.userType == 'Administrador'
+                      ? Icons.admin_panel_settings_rounded
+                      : Icons.person_rounded,
+                  size: 16,
+                  color: AppColors.textOnPrimary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Le atiende: ${widget.userType}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                     color: AppColors.textOnPrimary,
                   ),
-                  const SizedBox(width: 8),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Barra de herramientas horizontal con los botones principales del sistema
+  Widget _buildBarraBotonesSuperior(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF1F3F5),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFD9DDE2), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Botón 1: Ventas
+          _buildBotonModulo(
+            titulo: 'Ventas',
+            atajo: 'F1',
+            icono: Icons.point_of_sale_rounded,
+            colorIcono: AppColors.ventasIcon,
+          ),
+          const SizedBox(width: 8),
+
+          // Botón 2: Productos
+          _buildBotonModulo(
+            titulo: 'Productos',
+            atajo: 'F2',
+            icono: Icons.inventory_2_outlined,
+            colorIcono: AppColors.productosIcon,
+          ),
+          const SizedBox(width: 8),
+
+          // Botón 3: Inventario
+          _buildBotonModulo(
+            titulo: 'Inventario',
+            atajo: 'F3',
+            icono: Icons.warehouse_outlined,
+            colorIcono: AppColors.inventarioIcon,
+          ),
+
+          const Spacer(),
+
+          // Botón Salir (estilo eleventa a la derecha de la barra)
+          InkWell(
+            onTap: () => _cerrarSesion(context),
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 3,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.exit_to_app_rounded, size: 18, color: AppColors.error),
+                  SizedBox(width: 6),
                   Text(
-                    userType,
-                    style: const TextStyle(
-                      fontSize: 14,
+                    'Salir',
+                    style: TextStyle(
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textOnPrimary,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          // Botón cerrar sesión con contenedor estilizado
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(30),
-              borderRadius: BorderRadius.circular(12),
+        ],
+      ),
+    );
+  }
+
+  /// Botón individual de módulo para la barra superior
+  Widget _buildBotonModulo({
+    required String titulo,
+    required String atajo,
+    required IconData icono,
+    required Color colorIcono,
+  }) {
+    final bool seleccionado = _moduloSeleccionado == titulo;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _moduloSeleccionado = titulo;
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: seleccionado ? Colors.white : const Color(0xFFF8F9FA),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: seleccionado ? AppColors.accent : const Color(0xFFD0D5DD),
+            width: seleccionado ? 2.0 : 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: seleccionado
+                  ? AppColors.accent.withAlpha(45)
+                  : Colors.black.withAlpha(8),
+              blurRadius: seleccionado ? 6 : 2,
+              offset: const Offset(0, 1),
             ),
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded, size: 22),
-              tooltip: 'Cerrar sesión',
-              color: AppColors.textOnPrimary,
-              onPressed: () => _cerrarSesion(context),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icono,
+              size: 20,
+              color: colorIcono,
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: seleccionado
+                    ? AppColors.accent.withAlpha(30)
+                    : Colors.black.withAlpha(12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                atajo,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: seleccionado
+                      ? const Color(0xFFB45309)
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              titulo,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: seleccionado ? FontWeight.bold : FontWeight.w600,
+                color: seleccionado
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Franja horizontal del módulo actualmente activo (estilo franja dorada de eleventa)
+  Widget _buildBannerModuloActivo() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+      decoration: const BoxDecoration(
+        color: AppColors.accent,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _obtenerIconoModulo(_moduloSeleccionado),
+            color: Colors.white,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            _moduloSeleccionado.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+              color: Colors.white,
             ),
           ),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Align(
-                alignment: const Alignment(0, -0.32),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Saludo dinámico con icono decorativo según el momento del día
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.accent.withAlpha(35),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _obtenerIconoSaludo(),
-                              color: AppColors.accent,
-                              size: 26,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            _obtenerSaludo(),
-                            style: AppTextStyles.heading.copyWith(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '¿Qué acción realizarás?',
-                        style: AppTextStyles.body.copyWith(
-                          fontSize: 17,
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 38),
-
-                      // Cards centradas con contornos definidos, sombra y diseño limpio
-                      Wrap(
-                        spacing: 32,
-                        runSpacing: 32,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 270,
-                            height: 285,
-                            child: MenuCard(
-                              icon: Icons.point_of_sale_rounded,
-                              title: 'Ventas',
-                              subtitle: 'Registrar y consultar ventas',
-                              iconColor: AppColors.ventasIcon,
-                              onTap: () {
-                                _mostrarSnackBar(context, 'Ventas - Próximamente');
-                              },
-                            ),
-                          ),
-                          SizedBox(
-                            width: 270,
-                            height: 285,
-                            child: MenuCard(
-                              icon: Icons.inventory_2_outlined,
-                              title: 'Productos',
-                              subtitle: 'Gestionar catálogo de productos',
-                              iconColor: AppColors.productosIcon,
-                              onTap: () {
-                                _mostrarSnackBar(context, 'Productos - Próximamente');
-                              },
-                            ),
-                          ),
-                          SizedBox(
-                            width: 270,
-                            height: 285,
-                            child: MenuCard(
-                              icon: Icons.warehouse_outlined,
-                              title: 'Inventario',
-                              subtitle: 'Control de existencias',
-                              iconColor: AppColors.inventarioIcon,
-                              onTap: () {
-                                _mostrarSnackBar(context, 'Inventario - Próximamente');
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 
-  /// Muestra un SnackBar temporal.
-  void _mostrarSnackBar(BuildContext context, String mensaje) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: AppColors.primaryDark,
-        duration: const Duration(seconds: 2),
+  /// Área de trabajo inferior limpia donde posteriormente se desplegarán las opciones
+  Widget _buildAreaTrabajo() {
+    final color = _obtenerColorModulo(_moduloSeleccionado);
+    final icono = _obtenerIconoModulo(_moduloSeleccionado);
+
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFF9FAFB),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Saludo dinámico y subtítulo
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withAlpha(35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _obtenerIconoSaludo(),
+                    color: AppColors.accent,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _obtenerSaludo(),
+                      style: AppTextStyles.heading.copyWith(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '¿Qué acción realizarás?',
+                      style: AppTextStyles.body.copyWith(
+                        fontSize: 15,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+
+            // Contenedor principal del espacio de trabajo del módulo seleccionado
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(40),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: color.withAlpha(25),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: color.withAlpha(60), width: 2),
+                    ),
+                    child: Icon(
+                      icono,
+                      size: 34,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Módulo de $_moduloSeleccionado',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Aquí se desplegarán las opciones y herramientas de $_moduloSeleccionado.',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
