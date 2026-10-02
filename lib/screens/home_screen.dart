@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import 'login_screen.dart';
+import 'productos_view.dart';
+import 'ventas_view.dart';
+import 'inventario_view.dart';
 
 /// Pantalla principal después del login (Punto de Venta).
 /// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
@@ -119,9 +122,13 @@ class _HomeScreenState extends State<HomeScreen> {
             // 3. Franja / Banner del módulo activo
             _buildBannerModuloActivo(),
 
-            // 4. Área de trabajo inferior (donde luego se desplegarán las opciones)
+            // 4. Área de trabajo inferior
             Expanded(
-              child: _buildAreaTrabajo(),
+              child: _moduloSeleccionado == 'Ventas'
+                  ? const VentasView()
+                  : (_moduloSeleccionado == 'Productos'
+                      ? const ProductosView()
+                      : const InventarioView()),
             ),
           ],
         ),
@@ -132,14 +139,14 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Barra superior con el logotipo de la tienda y el usuario activo
   Widget _buildEncabezadoSuperior(BuildContext context) {
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: 66,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: const BoxDecoration(
         color: AppColors.primary,
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
-            blurRadius: 4,
+            blurRadius: 6,
             offset: Offset(0, 2),
           ),
         ],
@@ -148,30 +155,30 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // Logo e Identidad
           Container(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Colors.white.withAlpha(35),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
               Icons.storefront_rounded,
-              size: 20,
-              color: AppColors.textOnPrimary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'ABARROTES 3M',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.5,
+              size: 24,
               color: AppColors.textOnPrimary,
             ),
           ),
           const SizedBox(width: 12),
+          const Text(
+            'ABARROTES 3M',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.8,
+              color: AppColors.textOnPrimary,
+            ),
+          ),
+          const SizedBox(width: 14),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             decoration: BoxDecoration(
               color: AppColors.accent,
               borderRadius: BorderRadius.circular(4),
@@ -179,24 +186,24 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Text(
               'PUNTO DE VENTA',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
+                letterSpacing: 1.2,
                 color: Colors.white,
               ),
             ),
           ),
           const Spacer(),
 
-          // Indicador de usuario: "Le atiende: [userType]"
+          // Indicador de usuario: "[userType]" (Usuario / Administrador)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.white.withAlpha(35),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: Colors.white.withAlpha(60),
-                width: 1,
+                width: 1.2,
               ),
             ),
             child: Row(
@@ -206,14 +213,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   widget.userType == 'Administrador'
                       ? Icons.admin_panel_settings_rounded
                       : Icons.person_rounded,
-                  size: 16,
+                  size: 18,
                   color: AppColors.textOnPrimary,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Text(
-                  'Le atiende: ${widget.userType}',
+                  widget.userType,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textOnPrimary,
                   ),
@@ -263,6 +270,44 @@ class _HomeScreenState extends State<HomeScreen> {
             atajo: 'F3',
             icono: Icons.warehouse_outlined,
             colorIcono: AppColors.inventarioIcon,
+          ),
+
+          const SizedBox(width: 16),
+
+          // Saludo dinámico (Buenos días / tardes / noches) al lado derecho de los 3 botones
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFD1D5DB)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 3,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _obtenerIconoSaludo(),
+                  size: 16,
+                  color: AppColors.accent,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _obtenerSaludo(),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const Spacer(),
@@ -387,14 +432,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Franja horizontal del módulo actualmente activo (estilo franja dorada de eleventa)
+  /// Franja horizontal del módulo actualmente activo con el mismo color que su icono
   Widget _buildBannerModuloActivo() {
+    final color = _obtenerColorModulo(_moduloSeleccionado);
+    final String tituloBanner = _moduloSeleccionado == 'Ventas'
+        ? 'VENTA - Ticket 1'
+        : _moduloSeleccionado.toUpperCase();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-      decoration: const BoxDecoration(
-        color: AppColors.accent,
-        boxShadow: [
+      decoration: BoxDecoration(
+        color: color,
+        boxShadow: const [
           BoxShadow(
             color: Colors.black12,
             blurRadius: 4,
@@ -411,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 10),
           Text(
-            _moduloSeleccionado.toUpperCase(),
+            tituloBanner,
             style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.bold,
@@ -423,117 +473,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  /// Área de trabajo inferior limpia donde posteriormente se desplegarán las opciones
-  Widget _buildAreaTrabajo() {
-    final color = _obtenerColorModulo(_moduloSeleccionado);
-    final icono = _obtenerIconoModulo(_moduloSeleccionado);
-
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFFF9FAFB),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Saludo dinámico y subtítulo
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withAlpha(35),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _obtenerIconoSaludo(),
-                    color: AppColors.accent,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _obtenerSaludo(),
-                      style: AppTextStyles.heading.copyWith(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '¿Qué acción realizarás?',
-                      style: AppTextStyles.body.copyWith(
-                        fontSize: 15,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 28),
-
-            // Contenedor principal del espacio de trabajo del módulo seleccionado
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(40),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 10,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: color.withAlpha(25),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: color.withAlpha(60), width: 2),
-                    ),
-                    child: Icon(
-                      icono,
-                      size: 34,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Módulo de $_moduloSeleccionado',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Aquí se desplegarán las opciones y herramientas de $_moduloSeleccionado.',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
+
 

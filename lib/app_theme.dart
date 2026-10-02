@@ -28,9 +28,9 @@ class AppColors {
   static const Color success = Color(0xFF27AE60);         // Verde éxito
 
   // Iconos de las cards del menú
-  static const Color ventasIcon = Color(0xFF2E7D5B);     // Verde principal
+  static const Color ventasIcon = Color(0xFF496F9C);     // Azul (estilo Eleventa)
   static const Color productosIcon = Color(0xFFF9A825);  // Amarillo dorado
-  static const Color inventarioIcon = Color(0xFF3498DB); // Azul
+  static const Color inventarioIcon = Color(0xFF3D2C8D); // Morado / Índigo característico de Eleventa
 }
 
 /// Clase con los estilos de texto reutilizables.
