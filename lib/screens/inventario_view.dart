@@ -1,33 +1,10 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
-
-/// Modelo de artículo para la tabla del Reporte de Inventario
-class ItemInventario {
-  final String codigo;
-  final String descripcion;
-  final String departamento;
-  final double costo;
-  final double precioVenta;
-  int existencia;
-  final int invMinimo;
-  final int invMaximo;
-
-  ItemInventario({
-    required this.codigo,
-    required this.descripcion,
-    required this.departamento,
-    required this.costo,
-    required this.precioVenta,
-    required this.existencia,
-    required this.invMinimo,
-    required this.invMaximo,
-  });
-
-  double get valorInventario => costo * existencia;
-}
+import '../models/item_inventario.dart';
+import '../services/inventario_service.dart';
 
 /// Vista del módulo de Inventario (Reporte de Inventario estilo Eleventa).
-/// Incluye KPIs de costo/cantidad, filtro de departamento, alerta informativa y tabla de existencias.
+/// Conectado en tiempo real con el módulo de Productos a través de InventarioService.
 class InventarioView extends StatefulWidget {
   const InventarioView({super.key});
 
@@ -36,6 +13,7 @@ class InventarioView extends StatefulWidget {
 }
 
 class _InventarioViewState extends State<InventarioView> {
+  final _inventarioService = InventarioService();
   String _subOpcionSeleccionada = 'Reporte de Inventario';
   String _departamentoSeleccionado = '- Todos -';
   int? _filaSeleccionadaIndex = 0;
@@ -46,28 +24,37 @@ class _InventarioViewState extends State<InventarioView> {
     'Bebidas',
     'Lácteos y Quesos',
     'Botanas y Dulces',
+    'Frutas y Verduras',
+    'Carnicería y Embutidos',
+    'Panadería y Tortillería',
     'Limpieza del Hogar',
+    'Cuidado Personal',
   ];
 
-  // Datos representativos iniciales (como en la captura de eleventa)
-  final List<ItemInventario> _productosInventario = [
-    ItemInventario(
-      codigo: 'NEW PRODUCTO',
-      descripcion: 'Prueba 1',
-      departamento: 'Abarrotes',
-      costo: 10.00,
-      precioVenta: 12.00,
-      existencia: 15,
-      invMinimo: 3,
-      invMaximo: 24,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _inventarioService.addListener(_refrescarVista);
+  }
+
+  @override
+  void dispose() {
+    _inventarioService.removeListener(_refrescarVista);
+    super.dispose();
+  }
+
+  void _refrescarVista() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   List<ItemInventario> get _productosFiltrados {
+    final lista = _inventarioService.productos;
     if (_departamentoSeleccionado == '- Todos -') {
-      return _productosInventario;
+      return lista;
     }
-    return _productosInventario
+    return lista
         .where((p) => p.departamento == _departamentoSeleccionado)
         .toList();
   }
@@ -106,7 +93,10 @@ class _InventarioViewState extends State<InventarioView> {
               children: [
                 // Panel superior con Título, Métricas (Costo / Cantidad), Filtro y Botones
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -127,7 +117,8 @@ class _InventarioViewState extends State<InventarioView> {
                         children: [
                           _buildMetrica(
                             label: 'Costo del inventario',
-                            valor: '\$${_costoTotalInventario.toStringAsFixed(2)}',
+                            valor:
+                                '\$${_costoTotalInventario.toStringAsFixed(2)}',
                           ),
                           const SizedBox(width: 60),
                           _buildMetrica(
@@ -143,7 +134,11 @@ class _InventarioViewState extends State<InventarioView> {
                         children: [
                           const Text(
                             'Departamento:',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                           const SizedBox(width: 10),
                           Container(
@@ -151,13 +146,18 @@ class _InventarioViewState extends State<InventarioView> {
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              border: Border.all(color: const Color(0xFFD1D5DB)),
+                              border: Border.all(
+                                color: const Color(0xFFD1D5DB),
+                              ),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<String>(
                                 value: _departamentoSeleccionado,
-                                style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textPrimary,
+                                ),
                                 isDense: true,
                                 items: _departamentos.map((dept) {
                                   return DropdownMenuItem<String>(
@@ -167,7 +167,9 @@ class _InventarioViewState extends State<InventarioView> {
                                 }).toList(),
                                 onChanged: (nuevo) {
                                   if (nuevo != null) {
-                                    setState(() => _departamentoSeleccionado = nuevo);
+                                    setState(
+                                      () => _departamentoSeleccionado = nuevo,
+                                    );
                                   }
                                 },
                               ),
@@ -176,11 +178,20 @@ class _InventarioViewState extends State<InventarioView> {
                           const Spacer(),
 
                           // Botones auxiliares a la derecha: Modificar Producto, Exportar..., Imprimir...
-                          _buildBotonAccionHeader('Modificar Producto', Icons.edit_outlined),
+                          _buildBotonAccionHeader(
+                            'Modificar Producto',
+                            Icons.edit_outlined,
+                          ),
                           const SizedBox(width: 8),
-                          _buildBotonAccionHeader('Exportar...', Icons.file_download_outlined),
+                          _buildBotonAccionHeader(
+                            'Exportar...',
+                            Icons.file_download_outlined,
+                          ),
                           const SizedBox(width: 8),
-                          _buildBotonAccionHeader('Imprimir...', Icons.print_outlined),
+                          _buildBotonAccionHeader(
+                            'Imprimir...',
+                            Icons.print_outlined,
+                          ),
                         ],
                       ),
                     ],
@@ -190,7 +201,10 @@ class _InventarioViewState extends State<InventarioView> {
                 // Franja informativa amarilla estilo Eleventa
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   decoration: const BoxDecoration(
                     color: Color(0xFFFEF9C3), // Amarillo pastel
                     border: Border(
@@ -200,12 +214,20 @@ class _InventarioViewState extends State<InventarioView> {
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF854D0E)),
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: Color(0xFF854D0E),
+                      ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Ahora en este reporte solo se muestran los productos que manejan inventario. Si deseas ver todos tus productos independientemente si usan inventario o no, consulta el nuevo reporte en Productos > Catálogo.',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF713F12), fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF713F12),
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],
@@ -213,9 +235,7 @@ class _InventarioViewState extends State<InventarioView> {
                 ),
 
                 // Tabla de datos del inventario
-                Expanded(
-                  child: _buildTablaInventario(),
-                ),
+                Expanded(child: _buildTablaInventario()),
               ],
             ),
           ),
@@ -230,9 +250,7 @@ class _InventarioViewState extends State<InventarioView> {
       height: 48,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
       ),
       child: ListView(
         scrollDirection: Axis.horizontal,
@@ -242,9 +260,16 @@ class _InventarioViewState extends State<InventarioView> {
           const SizedBox(width: 6),
           _buildBotonSubOpcion('Ajustes', Icons.edit_note_rounded),
           const SizedBox(width: 6),
-          _buildBotonSubOpcion('Productos bajos en Inventario', Icons.error_outline_rounded, colorIcono: AppColors.error),
+          _buildBotonSubOpcion(
+            'Productos bajos en Inventario',
+            Icons.error_outline_rounded,
+            colorIcono: AppColors.error,
+          ),
           const SizedBox(width: 6),
-          _buildBotonSubOpcion('Reporte de Inventario', Icons.assignment_outlined),
+          _buildBotonSubOpcion(
+            'Reporte de Inventario',
+            Icons.assignment_outlined,
+          ),
           const SizedBox(width: 6),
           _buildBotonSubOpcion('Reporte de Movimientos', Icons.history_rounded),
           const SizedBox(width: 6),
@@ -254,7 +279,11 @@ class _InventarioViewState extends State<InventarioView> {
     );
   }
 
-  Widget _buildBotonSubOpcion(String titulo, IconData icono, {Color? colorIcono}) {
+  Widget _buildBotonSubOpcion(
+    String titulo,
+    IconData icono, {
+    Color? colorIcono,
+  }) {
     final bool activo = _subOpcionSeleccionada == titulo;
 
     return InkWell(
@@ -280,7 +309,9 @@ class _InventarioViewState extends State<InventarioView> {
             Icon(
               icono,
               size: 16,
-              color: activo ? const Color(0xFFB45309) : (colorIcono ?? AppColors.textSecondary),
+              color: activo
+                  ? const Color(0xFFB45309)
+                  : (colorIcono ?? AppColors.textSecondary),
             ),
             const SizedBox(width: 6),
             Text(
@@ -380,14 +411,20 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 140,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Código', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Código',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
               Expanded(
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Descripción del Producto', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Descripción del Producto',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -395,7 +432,11 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 110,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Costo', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                  child: Text(
+                    'Costo',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.right,
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -403,7 +444,11 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 110,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Precio Venta', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                  child: Text(
+                    'Precio Venta',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.right,
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -411,7 +456,11 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 110,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Existencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  child: Text(
+                    'Existencia',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -419,7 +468,11 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 110,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Inv. Mínimo', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  child: Text(
+                    'Inv. Mínimo',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
               VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -427,7 +480,11 @@ class _InventarioViewState extends State<InventarioView> {
                 width: 110,
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Inv. Máximo', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  child: Text(
+                    'Inv. Máximo',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
             ],
@@ -440,7 +497,10 @@ class _InventarioViewState extends State<InventarioView> {
               ? const Center(
                   child: Text(
                     'No hay productos registrados en este departamento',
-                    style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 )
               : ListView.builder(
@@ -460,10 +520,14 @@ class _InventarioViewState extends State<InventarioView> {
                         decoration: BoxDecoration(
                           color: seleccionado
                               ? const Color(0xFFEFF6FF)
-                              : (index.isEven ? Colors.white : const Color(0xFFF8FAFC)),
+                              : (index.isEven
+                                    ? Colors.white
+                                    : const Color(0xFFF8FAFC)),
                           border: Border(
                             bottom: BorderSide(
-                              color: seleccionado ? const Color(0xFFBFDBFE) : const Color(0xFFF1F5F9),
+                              color: seleccionado
+                                  ? const Color(0xFFBFDBFE)
+                                  : const Color(0xFFF1F5F9),
                               width: 1,
                             ),
                           ),
@@ -473,34 +537,71 @@ class _InventarioViewState extends State<InventarioView> {
                             SizedBox(
                               width: 140,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(item.codigo, style: const TextStyle(fontSize: 12)),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  item.codigo,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             Expanded(
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(item.descripcion, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  item.descripcion,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             SizedBox(
                               width: 110,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text('\$${item.costo.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12), textAlign: TextAlign.right),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  '\$${item.costo.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 12),
+                                  textAlign: TextAlign.right,
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             SizedBox(
                               width: 110,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text('\$${item.precioVenta.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12), textAlign: TextAlign.right),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  '\$${item.precioVenta.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 12),
+                                  textAlign: TextAlign.right,
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             // Existencia con sombreado tenue como en Eleventa
                             Container(
                               width: 110,
@@ -508,22 +609,38 @@ class _InventarioViewState extends State<InventarioView> {
                               child: Center(
                                 child: Text(
                                   '${item.existencia}',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E293B),
+                                  ),
                                 ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             SizedBox(
                               width: 110,
                               child: Center(
-                                child: Text('${item.invMinimo}', style: const TextStyle(fontSize: 12)),
+                                child: Text(
+                                  '${item.invMinimo}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F5F9)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F5F9),
+                            ),
                             SizedBox(
                               width: 110,
                               child: Center(
-                                child: Text('${item.invMaximo}', style: const TextStyle(fontSize: 12)),
+                                child: Text(
+                                  '${item.invMaximo}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
                             ),
                           ],

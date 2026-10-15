@@ -105,8 +105,14 @@ class _VentasViewState extends State<VentasView> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Total a pagar: \$${_totalVenta.toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryDark)),
+            Text(
+              'Total a pagar: \$${_totalVenta.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryDark,
+              ),
+            ),
             const SizedBox(height: 12),
             Text('Productos: $_totalProductos artículo(s)'),
           ],
@@ -159,9 +165,7 @@ class _VentasViewState extends State<VentasView> {
         _buildPestanaTicket(),
 
         // 4. Tabla de artículos de la venta
-        Expanded(
-          child: _buildTablaProductos(),
-        ),
+        Expanded(child: _buildTablaProductos()),
 
         // 5. Barra inferior con resumen, opciones y botón de Cobro (F12)
         _buildBarraInferiorVenta(),
@@ -195,9 +199,18 @@ class _VentasViewState extends State<VentasView> {
               controller: _codigoController,
               onSubmitted: (_) => _agregarProducto(),
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.qr_code_scanner_rounded, size: 18, color: AppColors.ventasIcon),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                prefixIcon: const Icon(
+                  Icons.qr_code_scanner_rounded,
+                  size: 18,
+                  color: AppColors.ventasIcon,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 hintText: 'Ingresa código o escanea...',
                 isDense: true,
               ),
@@ -224,7 +237,11 @@ class _VentasViewState extends State<VentasView> {
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.add_circle_outline_rounded, size: 16, color: AppColors.ventasIcon),
+                  Icon(
+                    Icons.add_circle_outline_rounded,
+                    size: 16,
+                    color: AppColors.ventasIcon,
+                  ),
                   SizedBox(width: 6),
                   Text(
                     'ENTER - Agregar Producto',
@@ -263,13 +280,25 @@ class _VentasViewState extends State<VentasView> {
           const SizedBox(width: 6),
           _buildBotonAtajo('F11 Mayoreo', Icons.sell_outlined),
           const SizedBox(width: 6),
-          _buildBotonAtajo('F7 Entradas', Icons.arrow_downward_rounded, colorIcono: AppColors.ventasIcon),
+          _buildBotonAtajo(
+            'F7 Entradas',
+            Icons.arrow_downward_rounded,
+            colorIcono: AppColors.ventasIcon,
+          ),
           const SizedBox(width: 6),
-          _buildBotonAtajo('F8 Salidas', Icons.arrow_upward_rounded, colorIcono: AppColors.error),
+          _buildBotonAtajo(
+            'F8 Salidas',
+            Icons.arrow_upward_rounded,
+            colorIcono: AppColors.error,
+          ),
           const SizedBox(width: 6),
-          _buildBotonAtajo('DEL Borrar Art.', Icons.backspace_outlined, onTap: () {
-            if (_items.isNotEmpty) _eliminarItem(_items.length - 1);
-          }),
+          _buildBotonAtajo(
+            'DEL Borrar Art.',
+            Icons.backspace_outlined,
+            onTap: () {
+              if (_items.isNotEmpty) _eliminarItem(_items.length - 1);
+            },
+          ),
           const SizedBox(width: 6),
           _buildBotonAtajo('F9 - Verificador', Icons.price_check_rounded),
         ],
@@ -277,7 +306,12 @@ class _VentasViewState extends State<VentasView> {
     );
   }
 
-  Widget _buildBotonAtajo(String texto, IconData icono, {Color? colorIcono, VoidCallback? onTap}) {
+  Widget _buildBotonAtajo(
+    String texto,
+    IconData icono, {
+    Color? colorIcono,
+    VoidCallback? onTap,
+  }) {
     return InkWell(
       onTap: onTap ?? () => _mostrarMensaje('$texto seleccionado'),
       borderRadius: BorderRadius.circular(4),
@@ -317,22 +351,19 @@ class _VentasViewState extends State<VentasView> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(6),
-                topRight: Radius.circular(6),
-              ),
-              border: Border(
-                top: BorderSide(color: Color(0xFFD1D5DB)),
-                left: BorderSide(color: Color(0xFFD1D5DB)),
-                right: BorderSide(color: Color(0xFFD1D5DB)),
-              ),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFFD1D5DB)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.receipt_long_rounded, size: 14, color: AppColors.ventasIcon),
+                const Icon(
+                  Icons.receipt_long_rounded,
+                  size: 14,
+                  color: AppColors.ventasIcon,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Ticket $_ticketActivo',
@@ -372,14 +403,26 @@ class _VentasViewState extends State<VentasView> {
                   width: 160,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Código de Barras', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      'Código de Barras',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
                 VerticalDivider(width: 1, color: Color(0xFFD1D5DB)),
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Descripción del Producto', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      'Descripción del Producto',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
                 VerticalDivider(width: 1, color: Color(0xFFD1D5DB)),
@@ -387,7 +430,14 @@ class _VentasViewState extends State<VentasView> {
                   width: 110,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Precio Venta', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                    child: Text(
+                      'Precio Venta',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
                   ),
                 ),
                 VerticalDivider(width: 1, color: Color(0xFFD1D5DB)),
@@ -395,7 +445,14 @@ class _VentasViewState extends State<VentasView> {
                   width: 80,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Cant.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                    child: Text(
+                      'Cant.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
                 VerticalDivider(width: 1, color: Color(0xFFD1D5DB)),
@@ -403,7 +460,14 @@ class _VentasViewState extends State<VentasView> {
                   width: 110,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Importe', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                    child: Text(
+                      'Importe',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
                   ),
                 ),
                 VerticalDivider(width: 1, color: Color(0xFFD1D5DB)),
@@ -411,7 +475,14 @@ class _VentasViewState extends State<VentasView> {
                   width: 90,
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Existencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                    child: Text(
+                      'Existencia',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ],
@@ -425,76 +496,142 @@ class _VentasViewState extends State<VentasView> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.shopping_cart_outlined, size: 50, color: Color(0xFFCBD5E1)),
+                        Icon(
+                          Icons.shopping_cart_outlined,
+                          size: 50,
+                          color: Color(0xFFCBD5E1),
+                        ),
                         SizedBox(height: 12),
                         Text(
                           'No hay artículos en la venta',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF94A3B8),
+                          ),
                         ),
                         SizedBox(height: 4),
                         Text(
                           'Escanea o ingresa un código de producto para comenzar.',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF94A3B8),
+                          ),
                         ),
                       ],
                     ),
                   )
                 : ListView.separated(
                     itemCount: _items.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF1F3F5)),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1, color: Color(0xFFF1F3F5)),
                     itemBuilder: (context, index) {
                       final item = _items[index];
                       return Container(
                         height: 38,
-                        color: index.isEven ? Colors.white : const Color(0xFFF9FAFB),
+                        color: index.isEven
+                            ? Colors.white
+                            : const Color(0xFFF9FAFB),
                         child: Row(
                           children: [
                             SizedBox(
                               width: 160,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(item.codigo, style: const TextStyle(fontSize: 12)),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  item.codigo,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F3F5)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F3F5),
+                            ),
                             Expanded(
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(item.descripcion, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  item.descripcion,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F3F5)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F3F5),
+                            ),
                             SizedBox(
                               width: 110,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text('\$${item.precioVenta.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12), textAlign: TextAlign.right),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: Text(
+                                  '\$${item.precioVenta.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 12),
+                                  textAlign: TextAlign.right,
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F3F5)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F3F5),
+                            ),
                             SizedBox(
                               width: 80,
                               child: Center(
-                                child: Text('${item.cantidad}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                child: Text(
+                                  '${item.cantidad}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F3F5)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F3F5),
+                            ),
                             // Columna Importe con sutil sombreado verde como en Eleventa
                             Container(
                               width: 110,
                               color: const Color(0xFFECFDF5),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
                               alignment: Alignment.centerRight,
                               child: Text(
                                 '\$${item.importe.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ventasIcon),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.ventasIcon,
+                                ),
                               ),
                             ),
-                            const VerticalDivider(width: 1, color: Color(0xFFF1F3F5)),
+                            const VerticalDivider(
+                              width: 1,
+                              color: Color(0xFFF1F3F5),
+                            ),
                             SizedBox(
                               width: 90,
                               child: Center(
-                                child: Text('${item.existencia}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                child: Text(
+                                  '${item.existencia}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -539,13 +676,26 @@ class _VentasViewState extends State<VentasView> {
                 // Botones auxiliares: F5 Cambiar, F6 Pendiente, Eliminar, Asignar cliente
                 Row(
                   children: [
-                    _buildBotonInferiorAux('F5 - Cambiar', Icons.swap_horiz_rounded),
+                    _buildBotonInferiorAux(
+                      'F5 - Cambiar',
+                      Icons.swap_horiz_rounded,
+                    ),
                     const SizedBox(width: 6),
-                    _buildBotonInferiorAux('F6 - Pendiente', Icons.pause_circle_outline_rounded),
+                    _buildBotonInferiorAux(
+                      'F6 - Pendiente',
+                      Icons.pause_circle_outline_rounded,
+                    ),
                     const SizedBox(width: 6),
-                    _buildBotonInferiorAux('Eliminar', Icons.delete_outline_rounded, onTap: _limpiarVenta),
+                    _buildBotonInferiorAux(
+                      'Eliminar',
+                      Icons.delete_outline_rounded,
+                      onTap: _limpiarVenta,
+                    ),
                     const SizedBox(width: 6),
-                    _buildBotonInferiorAux('Asignar cliente', Icons.person_add_alt_rounded),
+                    _buildBotonInferiorAux(
+                      'Asignar cliente',
+                      Icons.person_add_alt_rounded,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -553,11 +703,29 @@ class _VentasViewState extends State<VentasView> {
                 // Resumen de pago
                 Row(
                   children: [
-                    Text('Total: \$${_totalVenta.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    Text(
+                      'Total: \$${_totalVenta.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(width: 16),
-                    const Text('Pagó Con: \$0.00', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const Text(
+                      'Pagó Con: \$0.00',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                     const SizedBox(width: 16),
-                    const Text('Cambio: \$0.00', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const Text(
+                      'Cambio: \$0.00',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -573,9 +741,15 @@ class _VentasViewState extends State<VentasView> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildBotonInferiorAux('Reimprimir Último Ticket', Icons.print_outlined),
+                  _buildBotonInferiorAux(
+                    'Reimprimir Último Ticket',
+                    Icons.print_outlined,
+                  ),
                   const SizedBox(width: 8),
-                  _buildBotonInferiorAux('Ventas del día y Devoluciones', Icons.assessment_outlined),
+                  _buildBotonInferiorAux(
+                    'Ventas del día y Devoluciones',
+                    Icons.assessment_outlined,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -587,15 +761,28 @@ class _VentasViewState extends State<VentasView> {
                   // Botón F12 - Cobrar
                   ElevatedButton.icon(
                     onPressed: _cobrar,
-                    icon: const Icon(Icons.point_of_sale_rounded, size: 22, color: Colors.white),
+                    icon: const Icon(
+                      Icons.point_of_sale_rounded,
+                      size: 22,
+                      color: Colors.white,
+                    ),
                     label: const Text(
                       'F12 - Cobrar',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.ventasIcon,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       elevation: 2,
                     ),
                   ),
@@ -609,7 +796,10 @@ class _VentasViewState extends State<VentasView> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFD1D5DB), width: 1.5),
+                      border: Border.all(
+                        color: const Color(0xFFD1D5DB),
+                        width: 1.5,
+                      ),
                       boxShadow: const [
                         BoxShadow(
                           color: Colors.black12,
@@ -624,7 +814,9 @@ class _VentasViewState extends State<VentasView> {
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF1E3A8A), // Azul fuerte característico de Eleventa
+                        color: Color(
+                          0xFF1E3A8A,
+                        ), // Azul fuerte característico de Eleventa
                       ),
                     ),
                   ),
@@ -637,7 +829,11 @@ class _VentasViewState extends State<VentasView> {
     );
   }
 
-  Widget _buildBotonInferiorAux(String texto, IconData icono, {VoidCallback? onTap}) {
+  Widget _buildBotonInferiorAux(
+    String texto,
+    IconData icono, {
+    VoidCallback? onTap,
+  }) {
     return InkWell(
       onTap: onTap ?? () => _mostrarMensaje(texto),
       borderRadius: BorderRadius.circular(4),
@@ -655,7 +851,11 @@ class _VentasViewState extends State<VentasView> {
             const SizedBox(width: 5),
             Text(
               texto,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
             ),
           ],
         ),

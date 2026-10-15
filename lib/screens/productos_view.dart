@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
+import '../models/item_inventario.dart';
+import '../services/inventario_service.dart';
 
 /// Vista del módulo de Productos (Pantalla estilo Eleventa).
 /// Permite registrar un nuevo producto con código, descripción, precios e inventario.
@@ -56,8 +58,10 @@ class _ProductosViewState extends State<ProductosView> {
   }
 
   void _calcularPrecioVenta() {
-    final costo = double.tryParse(_costoController.text.replaceAll(',', '')) ?? 0.0;
-    final ganancia = double.tryParse(_gananciaController.text.replaceAll(',', '')) ?? 0.0;
+    final costo =
+        double.tryParse(_costoController.text.replaceAll(',', '')) ?? 0.0;
+    final ganancia =
+        double.tryParse(_gananciaController.text.replaceAll(',', '')) ?? 0.0;
     if (costo >= 0) {
       final venta = costo * (1 + (ganancia / 100));
       _ventaController.text = venta.toStringAsFixed(2);
@@ -65,8 +69,10 @@ class _ProductosViewState extends State<ProductosView> {
   }
 
   void _calcularGanancia() {
-    final costo = double.tryParse(_costoController.text.replaceAll(',', '')) ?? 0.0;
-    final venta = double.tryParse(_ventaController.text.replaceAll(',', '')) ?? 0.0;
+    final costo =
+        double.tryParse(_costoController.text.replaceAll(',', '')) ?? 0.0;
+    final venta =
+        double.tryParse(_ventaController.text.replaceAll(',', '')) ?? 0.0;
     if (costo > 0 && venta >= costo) {
       final ganancia = ((venta - costo) / costo) * 100;
       _gananciaController.text = ganancia.toStringAsFixed(2);
@@ -74,16 +80,61 @@ class _ProductosViewState extends State<ProductosView> {
   }
 
   void _guardarProducto() {
-    if (_codigoController.text.trim().isEmpty) {
-      _mostrarMensaje('Por favor ingresa o escanea el código de barras', esError: true);
+    final codigo = _codigoController.text.trim();
+    final descripcion = _descripcionController.text.trim();
+
+    if (codigo.isEmpty) {
+      _mostrarMensaje(
+        'Por favor ingresa o escanea el código de barras',
+        esError: true,
+      );
       return;
     }
-    if (_descripcionController.text.trim().isEmpty) {
-      _mostrarMensaje('Por favor ingresa la descripción del producto', esError: true);
+    if (descripcion.isEmpty) {
+      _mostrarMensaje(
+        'Por favor ingresa la descripción del producto',
+        esError: true,
+      );
       return;
     }
 
-    _mostrarMensaje('Producto "${_descripcionController.text.trim()}" guardado correctamente');
+    final costo =
+        double.tryParse(_costoController.text.replaceAll(',', '')) ?? 0.0;
+    final ganancia =
+        double.tryParse(_gananciaController.text.replaceAll(',', '')) ?? 20.0;
+    final venta =
+        double.tryParse(_ventaController.text.replaceAll(',', '')) ?? 0.0;
+    final mayoreo =
+        double.tryParse(_mayoreoController.text.replaceAll(',', '')) ?? 0.0;
+    final hay = int.tryParse(_hayController.text.replaceAll(',', '')) ?? 0;
+    final minimo =
+        int.tryParse(_minimoController.text.replaceAll(',', '')) ?? 0;
+    final maximo =
+        int.tryParse(_maximoController.text.replaceAll(',', '')) ?? 0;
+    final departamento = _departamentoSeleccionado == '- Sin Departamento -'
+        ? 'Abarrotes'
+        : _departamentoSeleccionado;
+
+    final nuevoItem = ItemInventario(
+      codigo: codigo,
+      descripcion: descripcion,
+      departamento: departamento,
+      costo: costo,
+      precioVenta: venta,
+      ganancia: ganancia,
+      precioMayoreo: mayoreo,
+      tipoVenta: _tipoVenta,
+      existencia: hay,
+      invMinimo: minimo,
+      invMaximo: maximo,
+    );
+
+    // Guardar en el servicio reactivo para que se refleje en Inventario
+    InventarioService().agregarOActualizarProducto(nuevoItem);
+
+    _mostrarMensaje(
+      'Producto "$descripcion" guardado y reflejado en Inventario',
+    );
     _limpiarFormulario();
   }
 
@@ -145,23 +196,23 @@ class _ProductosViewState extends State<ProductosView> {
 
                   // Pestaña "Producto"
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: const BoxDecoration(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(8),
-                        topRight: Radius.circular(8),
-                      ),
-                      border: Border(
-                        top: BorderSide(color: Color(0xFFD1D5DB)),
-                        left: BorderSide(color: Color(0xFFD1D5DB)),
-                        right: BorderSide(color: Color(0xFFD1D5DB)),
-                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFD1D5DB)),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.inventory_2_outlined, size: 16, color: AppColors.primary),
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
                         SizedBox(width: 8),
                         Text(
                           'Producto',
@@ -186,7 +237,10 @@ class _ProductosViewState extends State<ProductosView> {
                         bottomLeft: Radius.circular(12),
                         bottomRight: Radius.circular(12),
                       ),
-                      border: Border.all(color: const Color(0xFFD1D5DB), width: 1.2),
+                      border: Border.all(
+                        color: const Color(0xFFD1D5DB),
+                        width: 1.2,
+                      ),
                       boxShadow: const [
                         BoxShadow(
                           color: Colors.black12,
@@ -216,9 +270,7 @@ class _ProductosViewState extends State<ProductosView> {
       height: 48,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
       ),
       child: ListView(
         scrollDirection: Axis.horizontal,
@@ -232,7 +284,10 @@ class _ProductosViewState extends State<ProductosView> {
           const SizedBox(width: 6),
           _buildBotonAccion('Departamentos', Icons.folder_outlined),
           const SizedBox(width: 6),
-          _buildBotonAccion('Ventas por Periodo', Icons.insert_chart_outlined_rounded),
+          _buildBotonAccion(
+            'Ventas por Periodo',
+            Icons.insert_chart_outlined_rounded,
+          ),
           const SizedBox(width: 6),
           _buildBotonAccion('Promociones', Icons.star_border_rounded),
           const SizedBox(width: 6),
@@ -304,9 +359,18 @@ class _ProductosViewState extends State<ProductosView> {
                 child: TextField(
                   controller: _codigoController,
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.qr_code_scanner_rounded, size: 20, color: AppColors.primary),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    prefixIcon: const Icon(
+                      Icons.qr_code_scanner_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                     isDense: true,
                     hintText: 'Ej. 7501055312345',
                   ),
@@ -326,8 +390,13 @@ class _ProductosViewState extends State<ProductosView> {
             child: TextField(
               controller: _descripcionController,
               decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 isDense: true,
                 hintText: 'Ej. Refresco Coca Cola 600ml',
               ),
@@ -363,11 +432,18 @@ class _ProductosViewState extends State<ProductosView> {
                 height: 38,
                 child: TextField(
                   controller: _costoController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: InputDecoration(
                     prefixText: '\$ ',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                     isDense: true,
                   ),
                   onChanged: (_) => _calcularPrecioVenta(),
@@ -376,7 +452,11 @@ class _ProductosViewState extends State<ProductosView> {
               const SizedBox(width: 24),
               const Text(
                 'Ganancia',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
               ),
               const SizedBox(width: 12),
               SizedBox(
@@ -384,11 +464,18 @@ class _ProductosViewState extends State<ProductosView> {
                 height: 38,
                 child: TextField(
                   controller: _gananciaController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: InputDecoration(
                     suffixText: '%',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                     isDense: true,
                   ),
                   onChanged: (_) => _calcularPrecioVenta(),
@@ -407,11 +494,18 @@ class _ProductosViewState extends State<ProductosView> {
             height: 38,
             child: TextField(
               controller: _ventaController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: InputDecoration(
                 prefixText: '\$ ',
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 isDense: true,
               ),
               onChanged: (_) => _calcularGanancia(),
@@ -428,11 +522,18 @@ class _ProductosViewState extends State<ProductosView> {
             height: 38,
             child: TextField(
               controller: _mayoreoController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: InputDecoration(
                 prefixText: '\$ ',
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 isDense: true,
               ),
             ),
@@ -455,7 +556,10 @@ class _ProductosViewState extends State<ProductosView> {
               child: DropdownButton<String>(
                 value: _departamentoSeleccionado,
                 isExpanded: true,
-                style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                ),
                 items: _departamentos.map((dept) {
                   return DropdownMenuItem<String>(
                     value: dept,
@@ -532,7 +636,11 @@ class _ProductosViewState extends State<ProductosView> {
                           width: 65,
                           child: Text(
                             'Hay',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                         ),
                         SizedBox(
@@ -541,11 +649,18 @@ class _ProductosViewState extends State<ProductosView> {
                           child: TextField(
                             controller: _hayController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             textAlign: TextAlign.center,
                             decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 6,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                               isDense: true,
                             ),
                           ),
@@ -553,7 +668,10 @@ class _ProductosViewState extends State<ProductosView> {
                         const SizedBox(width: 10),
                         const Text(
                           'en este momento.',
-                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),
@@ -566,7 +684,11 @@ class _ProductosViewState extends State<ProductosView> {
                           width: 65,
                           child: Text(
                             'Mínimo',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                         ),
                         SizedBox(
@@ -575,11 +697,18 @@ class _ProductosViewState extends State<ProductosView> {
                           child: TextField(
                             controller: _minimoController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             textAlign: TextAlign.center,
                             decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 6,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                               isDense: true,
                             ),
                           ),
@@ -595,7 +724,11 @@ class _ProductosViewState extends State<ProductosView> {
                           width: 65,
                           child: Text(
                             'Máximo',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                         ),
                         SizedBox(
@@ -604,11 +737,18 @@ class _ProductosViewState extends State<ProductosView> {
                           child: TextField(
                             controller: _maximoController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             textAlign: TextAlign.center,
                             decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 6,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                               isDense: true,
                             ),
                           ),
@@ -669,7 +809,9 @@ class _ProductosViewState extends State<ProductosView> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: seleccionado ? AppColors.primary : const Color(0xFF9CA3AF),
+                  color: seleccionado
+                      ? AppColors.primary
+                      : const Color(0xFF9CA3AF),
                   width: seleccionado ? 5.5 : 1.8,
                 ),
               ),
@@ -695,9 +837,7 @@ class _ProductosViewState extends State<ProductosView> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
@@ -712,15 +852,25 @@ class _ProductosViewState extends State<ProductosView> {
           // Botón Guardar Producto
           ElevatedButton.icon(
             onPressed: _guardarProducto,
-            icon: const Icon(Icons.check_rounded, size: 20, color: Colors.white),
+            icon: const Icon(
+              Icons.check_rounded,
+              size: 20,
+              color: Colors.white,
+            ),
             label: const Text(
               'Guardar Producto',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
               elevation: 2,
             ),
           ),
@@ -728,15 +878,25 @@ class _ProductosViewState extends State<ProductosView> {
           // Botón Cancelar
           OutlinedButton.icon(
             onPressed: _limpiarFormulario,
-            icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.error),
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: AppColors.error,
+            ),
             label: const Text(
               'Cancelar',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
             ),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               side: const BorderSide(color: Color(0xFFD1D5DB)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],

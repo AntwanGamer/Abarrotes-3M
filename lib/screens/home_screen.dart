@@ -5,6 +5,9 @@ import 'login_screen.dart';
 import 'productos_view.dart';
 import 'ventas_view.dart';
 import 'inventario_view.dart';
+import 'clientes_view.dart';
+import 'corte_view.dart';
+import 'reportes_view.dart';
 
 /// Pantalla principal después del login (Punto de Venta).
 /// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
@@ -72,10 +75,16 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (modulo) {
       case 'Ventas':
         return AppColors.ventasIcon;
+      case 'Clientes':
+        return AppColors.clientesIcon;
       case 'Productos':
         return AppColors.productosIcon;
       case 'Inventario':
         return AppColors.inventarioIcon;
+      case 'Corte':
+        return AppColors.corteIcon;
+      case 'Reportes':
+        return AppColors.reportesIcon;
       default:
         return AppColors.primary;
     }
@@ -85,10 +94,16 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (modulo) {
       case 'Ventas':
         return Icons.point_of_sale_rounded;
+      case 'Clientes':
+        return Icons.people_alt_rounded;
       case 'Productos':
         return Icons.inventory_2_outlined;
       case 'Inventario':
         return Icons.warehouse_outlined;
+      case 'Corte':
+        return Icons.content_cut_rounded;
+      case 'Reportes':
+        return Icons.bar_chart_rounded;
       default:
         return Icons.apps_rounded;
     }
@@ -108,6 +123,12 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() => _moduloSeleccionado = 'Productos');
             } else if (event.logicalKey == LogicalKeyboardKey.f3) {
               setState(() => _moduloSeleccionado = 'Inventario');
+            } else if (event.logicalKey == LogicalKeyboardKey.f4) {
+              setState(() => _moduloSeleccionado = 'Clientes');
+            } else if (event.logicalKey == LogicalKeyboardKey.f5) {
+              setState(() => _moduloSeleccionado = 'Corte');
+            } else if (event.logicalKey == LogicalKeyboardKey.f6) {
+              setState(() => _moduloSeleccionado = 'Reportes');
             }
           }
         },
@@ -126,9 +147,15 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _moduloSeleccionado == 'Ventas'
                   ? const VentasView()
-                  : (_moduloSeleccionado == 'Productos'
-                      ? const ProductosView()
-                      : const InventarioView()),
+                  : (_moduloSeleccionado == 'Clientes'
+                      ? const ClientesView()
+                      : (_moduloSeleccionado == 'Productos'
+                          ? const ProductosView()
+                          : (_moduloSeleccionado == 'Inventario'
+                              ? const InventarioView()
+                              : (_moduloSeleccionado == 'Corte'
+                                  ? const CorteView()
+                                  : const ReportesView())))),
             ),
           ],
         ),
@@ -255,7 +282,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
 
-          // Botón 2: Productos
+          // Botón 2: Clientes (disponible para ambos usuarios)
+          _buildBotonModulo(
+            titulo: 'Clientes',
+            atajo: null,
+            icono: Icons.people_alt_rounded,
+            colorIcono: AppColors.clientesIcon,
+          ),
+          const SizedBox(width: 8),
+
+          // Botón 3: Productos
           _buildBotonModulo(
             titulo: 'Productos',
             atajo: 'F2',
@@ -264,12 +300,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
 
-          // Botón 3: Inventario
+          // Botón 4: Inventario
           _buildBotonModulo(
             titulo: 'Inventario',
             atajo: 'F3',
             icono: Icons.warehouse_outlined,
             colorIcono: AppColors.inventarioIcon,
+          ),
+          const SizedBox(width: 8),
+
+          // Botón 5: Corte (estilo Eleventa)
+          _buildBotonModulo(
+            titulo: 'Corte',
+            atajo: null,
+            icono: Icons.content_cut_rounded,
+            colorIcono: AppColors.corteIcon,
+          ),
+          const SizedBox(width: 8),
+
+          // Botón 6: Reportes (estilo Eleventa)
+          _buildBotonModulo(
+            titulo: 'Reportes',
+            atajo: null,
+            icono: Icons.bar_chart_rounded,
+            colorIcono: AppColors.reportesIcon,
           ),
 
           const SizedBox(width: 16),
@@ -355,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Botón individual de módulo para la barra superior
   Widget _buildBotonModulo({
     required String titulo,
-    required String atajo,
+    String? atajo,
     required IconData icono,
     required Color colorIcono,
   }) {
@@ -395,26 +449,28 @@ class _HomeScreenState extends State<HomeScreen> {
               size: 20,
               color: colorIcono,
             ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: seleccionado
-                    ? AppColors.accent.withAlpha(30)
-                    : Colors.black.withAlpha(12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                atajo,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+            if (atajo != null && atajo.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
                   color: seleccionado
-                      ? const Color(0xFFB45309)
-                      : AppColors.textSecondary,
+                      ? AppColors.accent.withAlpha(30)
+                      : Colors.black.withAlpha(12),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  atajo,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: seleccionado
+                        ? const Color(0xFFB45309)
+                        : AppColors.textSecondary,
+                  ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(width: 8),
             Text(
               titulo,

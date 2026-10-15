@@ -31,6 +31,9 @@ class AppColors {
   static const Color ventasIcon = Color(0xFF496F9C);     // Azul (estilo Eleventa)
   static const Color productosIcon = Color(0xFFF9A825);  // Amarillo dorado
   static const Color inventarioIcon = Color(0xFF3D2C8D); // Morado / Índigo característico de Eleventa
+  static const Color clientesIcon = Color(0xFF38526E);   // Azul pizarra / acero característico de Eleventa
+  static const Color corteIcon = Color(0xFF134E4A);      // Verde azulado oscuro / teal característico de Eleventa para Corte
+  static const Color reportesIcon = Color(0xFF1E3A5F);   // Azul marino / pizarra característico de Eleventa para Reportes
 }
 
 /// Clase con los estilos de texto reutilizables.
