@@ -8,6 +8,7 @@ import 'inventario_view.dart';
 import 'clientes_view.dart';
 import 'corte_view.dart';
 import 'reportes_view.dart';
+import 'usuarios_view.dart';
 
 /// Pantalla principal después del login (Punto de Venta).
 /// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
@@ -85,6 +86,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return AppColors.corteIcon;
       case 'Reportes':
         return AppColors.reportesIcon;
+      case 'Usuarios':
+        return AppColors.usuariosIcon;
       default:
         return AppColors.primary;
     }
@@ -104,6 +107,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return Icons.content_cut_rounded;
       case 'Reportes':
         return Icons.bar_chart_rounded;
+      case 'Usuarios':
+        return Icons.manage_accounts_rounded;
       default:
         return Icons.apps_rounded;
     }
@@ -129,6 +134,9 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() => _moduloSeleccionado = 'Corte');
             } else if (event.logicalKey == LogicalKeyboardKey.f6) {
               setState(() => _moduloSeleccionado = 'Reportes');
+            } else if (event.logicalKey == LogicalKeyboardKey.f7 &&
+                widget.userType == 'Administrador') {
+              setState(() => _moduloSeleccionado = 'Usuarios');
             }
           }
         },
@@ -155,7 +163,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               ? const InventarioView()
                               : (_moduloSeleccionado == 'Corte'
                                   ? const CorteView()
-                                  : const ReportesView())))),
+                                  : (_moduloSeleccionado == 'Reportes'
+                                      ? const ReportesView()
+                                      : (_moduloSeleccionado == 'Usuarios' &&
+                                              widget.userType == 'Administrador'
+                                          ? const UsuariosView()
+                                          : const VentasView())))))),
             ),
           ],
         ),
@@ -273,98 +286,117 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Row(
         children: [
-          // Botón 1: Ventas
-          _buildBotonModulo(
-            titulo: 'Ventas',
-            atajo: 'F1',
-            icono: Icons.point_of_sale_rounded,
-            colorIcono: AppColors.ventasIcon,
-          ),
-          const SizedBox(width: 8),
-
-          // Botón 2: Clientes (disponible para ambos usuarios)
-          _buildBotonModulo(
-            titulo: 'Clientes',
-            atajo: null,
-            icono: Icons.people_alt_rounded,
-            colorIcono: AppColors.clientesIcon,
-          ),
-          const SizedBox(width: 8),
-
-          // Botón 3: Productos
-          _buildBotonModulo(
-            titulo: 'Productos',
-            atajo: 'F2',
-            icono: Icons.inventory_2_outlined,
-            colorIcono: AppColors.productosIcon,
-          ),
-          const SizedBox(width: 8),
-
-          // Botón 4: Inventario
-          _buildBotonModulo(
-            titulo: 'Inventario',
-            atajo: 'F3',
-            icono: Icons.warehouse_outlined,
-            colorIcono: AppColors.inventarioIcon,
-          ),
-          const SizedBox(width: 8),
-
-          // Botón 5: Corte (estilo Eleventa)
-          _buildBotonModulo(
-            titulo: 'Corte',
-            atajo: null,
-            icono: Icons.content_cut_rounded,
-            colorIcono: AppColors.corteIcon,
-          ),
-          const SizedBox(width: 8),
-
-          // Botón 6: Reportes (estilo Eleventa)
-          _buildBotonModulo(
-            titulo: 'Reportes',
-            atajo: null,
-            icono: Icons.bar_chart_rounded,
-            colorIcono: AppColors.reportesIcon,
-          ),
-
-          const SizedBox(width: 16),
-
-          // Saludo dinámico (Buenos días / tardes / noches) al lado derecho de los 3 botones
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFD1D5DB)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 3,
-                  offset: Offset(0, 1),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _obtenerIconoSaludo(),
-                  size: 16,
-                  color: AppColors.accent,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _obtenerSaludo(),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  // Botón 1: Ventas
+                  _buildBotonModulo(
+                    titulo: 'Ventas',
+                    atajo: 'F1',
+                    icono: Icons.point_of_sale_rounded,
+                    colorIcono: AppColors.ventasIcon,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+
+                  // Botón 2: Clientes (disponible para ambos usuarios)
+                  _buildBotonModulo(
+                    titulo: 'Clientes',
+                    atajo: null,
+                    icono: Icons.people_alt_rounded,
+                    colorIcono: AppColors.clientesIcon,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Botón 3: Productos
+                  _buildBotonModulo(
+                    titulo: 'Productos',
+                    atajo: 'F2',
+                    icono: Icons.inventory_2_outlined,
+                    colorIcono: AppColors.productosIcon,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Botón 4: Inventario
+                  _buildBotonModulo(
+                    titulo: 'Inventario',
+                    atajo: 'F3',
+                    icono: Icons.warehouse_outlined,
+                    colorIcono: AppColors.inventarioIcon,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Botón 5: Corte (estilo Eleventa)
+                  _buildBotonModulo(
+                    titulo: 'Corte',
+                    atajo: null,
+                    icono: Icons.content_cut_rounded,
+                    colorIcono: AppColors.corteIcon,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Botón 6: Reportes (estilo Eleventa)
+                  _buildBotonModulo(
+                    titulo: 'Reportes',
+                    atajo: null,
+                    icono: Icons.bar_chart_rounded,
+                    colorIcono: AppColors.reportesIcon,
+                  ),
+
+                  // Botón 7: Usuarios (Exclusivo Administrador)
+                  if (widget.userType == 'Administrador') ...[
+                    const SizedBox(width: 8),
+                    _buildBotonModulo(
+                      titulo: 'Usuarios',
+                      atajo: 'F7',
+                      icono: Icons.manage_accounts_rounded,
+                      colorIcono: AppColors.usuariosIcon,
+                    ),
+                  ],
+
+                  const SizedBox(width: 16),
+
+                  // Saludo dinámico (Buenos días / tardes / noches)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFD1D5DB)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _obtenerIconoSaludo(),
+                          size: 16,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _obtenerSaludo(),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-
-          const Spacer(),
+          const SizedBox(width: 12),
 
           // Botón Salir (estilo eleventa a la derecha de la barra)
           InkWell(

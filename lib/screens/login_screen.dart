@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
+import '../services/usuario_service.dart';
 import 'home_screen.dart';
 
 /// Pantalla de inicio de sesión.
@@ -16,7 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _contrasenaController = TextEditingController();
   bool _ocultarContrasena = true;
   String? _errorMensaje;
-  String _perfilSeleccionado = 'Usuario'; // Por defecto
+  String _perfilSeleccionado = 'Empleado'; // Por defecto
 
   @override
   void dispose() {
@@ -26,24 +27,39 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _login() {
+    final username = _usuarioController.text.trim();
+    final password = _contrasenaController.text.trim();
+
     // Validación básica
-    if (_usuarioController.text.trim().isEmpty ||
-        _contrasenaController.text.trim().isEmpty) {
+    if (username.isEmpty || password.isEmpty) {
       setState(() {
         _errorMensaje = 'Por favor ingresa usuario y contraseña';
       });
       return;
     }
 
+    // Si el usuario existe en el sistema, validamos su contraseña y adoptamos su rol
+    final usuarioRegistrado = UsuarioService().buscarPorNombreUsuario(username);
+    String perfilFinal = _perfilSeleccionado;
+
+    if (usuarioRegistrado != null) {
+      if (usuarioRegistrado.contrasena != password) {
+        setState(() {
+          _errorMensaje = 'Contraseña incorrecta para el usuario "$username"';
+        });
+        return;
+      }
+      perfilFinal = usuarioRegistrado.rol;
+    }
+
     setState(() {
       _errorMensaje = null;
     });
 
-    // Sin lógica de autenticación real por ahora
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => HomeScreen(userType: _perfilSeleccionado),
+        builder: (_) => HomeScreen(userType: perfilFinal),
       ),
     );
   }
@@ -105,11 +121,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       Expanded(
                         child: _PerfilButton(
-                          icon: Icons.person_outline_rounded,
-                          label: 'Usuario',
-                          seleccionado: _perfilSeleccionado == 'Usuario',
+                          icon: Icons.badge_outlined,
+                          label: 'Empleado',
+                          seleccionado: _perfilSeleccionado == 'Empleado',
                           onTap: () {
-                            setState(() => _perfilSeleccionado = 'Usuario');
+                            setState(() => _perfilSeleccionado = 'Empleado');
                           },
                         ),
                       ),
