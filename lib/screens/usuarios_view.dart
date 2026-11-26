@@ -41,6 +41,7 @@ class _UsuariosViewState extends State<UsuariosView> {
     'clientes_editar': false,
     'reportes_ver': false,
     'usuarios_gestionar': false,
+    'configuracion': false,
   });
 
   String _filtroBusqueda = '';
@@ -803,6 +804,12 @@ class _UsuariosViewState extends State<UsuariosView> {
                         clave: PermisosVentanas.usuariosGestionarKey,
                         titulo: 'Gestionar Usuarios y Permisos (usuarios_gestionar)',
                         descripcion: 'Permite crear nuevos usuarios, editar contraseñas y asignar permisos.',
+                      ),
+                      const SizedBox(height: 8),
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.configuracionKey,
+                        titulo: 'Configuración del Sistema (configuracion)',
+                        descripcion: 'Permite acceder a datos del negocio, ticket, periféricos y respaldos.',
                       ),
                     ],
                   ),

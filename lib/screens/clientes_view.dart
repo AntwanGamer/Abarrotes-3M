@@ -13,7 +13,9 @@ import '../repositories/cortes_caja_repository.dart';
 /// Disposición de dos columnas: lista y búsqueda a la izquierda, formulario y barra a la derecha.
 /// Conectada 100% a PostgreSQL local (Offline-First).
 class ClientesView extends StatefulWidget {
-  const ClientesView({super.key});
+  /// Si es true, filtra solo clientes con saldo pendiente (modo Créditos).
+  final bool soloConSaldo;
+  const ClientesView({super.key, this.soloConSaldo = false});
 
   @override
   State<ClientesView> createState() => _ClientesViewState();
@@ -53,9 +55,13 @@ class _ClientesViewState extends State<ClientesView> {
   Future<void> _cargarClientes([String? filtro]) async {
     setState(() => _cargando = true);
     try {
-      final lista = (filtro == null || filtro.trim().isEmpty)
+      var lista = (filtro == null || filtro.trim().isEmpty)
           ? await _clientesRepo.obtenerTodos()
           : await _clientesRepo.buscar(filtro);
+
+      if (widget.soloConSaldo) {
+        lista = lista.where((c) => c.saldoActual > 0).toList();
+      }
 
       if (mounted) {
         setState(() {

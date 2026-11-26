@@ -495,10 +495,12 @@ class SyncService {
         final map = Map<String, dynamic>.from(remoteRow);
 
         // Construir las columnas de SET para el ON CONFLICT DO UPDATE
+        // Excluimos explícitamente sincronizado, uuid_sync y la PK para evitar error 42601
         final setClauses = config.updateColumns
+            .where((col) => col != 'uuid_sync' && col != config.idColumn && col != 'sincronizado')
             .map((col) => '$col = EXCLUDED.$col')
             .toList();
-        // Forzar sincronizado = TRUE para evitar ciclos infinitos
+        // Dejar una única asignación explícita sincronizado = TRUE
         setClauses.add('sincronizado = TRUE');
 
         // Construir los nombres de columnas y placeholders

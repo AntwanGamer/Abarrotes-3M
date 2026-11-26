@@ -178,6 +178,35 @@ class ProductosRepository {
   // Escritura
   // ---------------------------------------------------------------------------
 
+  /// Obtiene o crea el registro base oculto para artículos comunes no registrados.
+  Future<Producto> obtenerOCrearArticuloComun() async {
+    final res = await _db.query(
+      "SELECT * FROM tbl_productos WHERE codigo_barras = 'ART-COMUN' LIMIT 1",
+    );
+    if (res.isNotEmpty) {
+      return Producto.fromMap(res.first.toColumnMap());
+    }
+
+    final deptoRes = await _db.query("SELECT id_departamento FROM tbl_departamentos LIMIT 1");
+    final deptoId = deptoRes.isNotEmpty ? parseIntSafe(deptoRes.first.toColumnMap()['id_departamento']) : 1;
+
+    return crear(
+      codigoBarras: 'ART-COMUN',
+      descripcion: 'Artículo Común',
+      idDepartamento: deptoId,
+      tipoVenta: 'Unidad',
+      precioCosto: 0.0,
+      precioVenta: 0.0,
+      usaInventario: false,
+      existencia: 0.0,
+      inventarioMinimo: 0.0,
+      inventarioMaximo: 0.0,
+      aplicaIva: false,
+      tasaIva: 0.0,
+      estatus: 'Inactivo',
+    );
+  }
+
   /// Crea un nuevo producto en la BD local.
   Future<Producto> crear({
     required String codigoBarras,
@@ -194,6 +223,7 @@ class ProductosRepository {
     bool aplicaIva = false,
     double tasaIva = 0.0,
     required int idDepartamento,
+    String estatus = 'Activo',
   }) async {
     final now = DateTime.now().toIso8601String();
     final terminalId = _db.terminalId;
@@ -209,7 +239,7 @@ class ProductosRepository {
          (@codigo, @desc, @depto, @tipoVenta,
           @costo, @venta, @mayoreo, @cantMayoreo,
           @usaInv, @existencia, @min, @max,
-          @aplicaIva, @tasaIva, 'Activo', @now, @now,
+          @aplicaIva, @tasaIva, @estatus, @now, @now,
           FALSE, @terminal)
          RETURNING *''',
       params: {
@@ -227,6 +257,7 @@ class ProductosRepository {
         'max': inventarioMaximo,
         'aplicaIva': aplicaIva,
         'tasaIva': tasaIva,
+        'estatus': estatus,
         'now': now,
         'terminal': terminalId,
       },

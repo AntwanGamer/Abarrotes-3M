@@ -264,4 +264,56 @@ class CatalogosRepository {
     if (res.isEmpty) return null;
     return ConfiguracionNegocio.fromMap(res.first.toColumnMap());
   }
+
+  /// Guarda o actualiza la configuración del negocio en PostgreSQL local.
+  Future<void> guardarConfiguracion({
+    required String nombreNegocio,
+    String? direccionNegocio,
+    String? telefonoNegocio,
+    String? mensajeTicket,
+    required bool imprimirTicket,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final existe = await _db.query('SELECT id_configuracion FROM tbl_configuracion LIMIT 1');
+    if (existe.isEmpty) {
+      await _db.query('''
+        INSERT INTO tbl_configuracion
+        (nombre_negocio, direccion_negocio, telefono_negocio, mensaje_ticket, imprimir_ticket,
+         fecha_registro, fecha_actualizacion, sincronizado, terminal_origen)
+        VALUES
+        (@nombre, @dir, @tel, @msj, @imp, @now, @now, FALSE, @term)
+      ''', params: {
+        'nombre': nombreNegocio.trim(),
+        'dir': direccionNegocio?.trim().isEmpty == true ? null : direccionNegocio?.trim(),
+        'tel': telefonoNegocio?.trim().isEmpty == true ? null : telefonoNegocio?.trim(),
+        'msj': mensajeTicket?.trim().isEmpty == true ? null : mensajeTicket?.trim(),
+        'imp': imprimirTicket,
+        'now': now,
+        'term': _db.terminalId,
+      });
+    } else {
+      final id = existe.first.toColumnMap()['id_configuracion'];
+      await _db.query('''
+        UPDATE tbl_configuracion SET
+          nombre_negocio = @nombre,
+          direccion_negocio = @dir,
+          telefono_negocio = @tel,
+          mensaje_ticket = @msj,
+          imprimir_ticket = @imp,
+          fecha_actualizacion = @now,
+          sincronizado = FALSE,
+          terminal_origen = @term
+        WHERE id_configuracion = @id
+      ''', params: {
+        'nombre': nombreNegocio.trim(),
+        'dir': direccionNegocio?.trim().isEmpty == true ? null : direccionNegocio?.trim(),
+        'tel': telefonoNegocio?.trim().isEmpty == true ? null : telefonoNegocio?.trim(),
+        'msj': mensajeTicket?.trim().isEmpty == true ? null : mensajeTicket?.trim(),
+        'imp': imprimirTicket,
+        'now': now,
+        'term': _db.terminalId,
+        'id': id,
+      });
+    }
+  }
 }

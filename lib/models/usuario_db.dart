@@ -37,6 +37,8 @@ class UsuarioDB {
   int get id => idUsuario;
   bool get esActivo => estatus.toLowerCase() == 'activo';
   bool get puedeGestionarUsuarios => permisosVentanas.usuariosGestionar;
+  bool get puedeConfigurar => permisosVentanas.configuracion;
+  bool get tieneAccesoAjustes => puedeConfigurar || puedeGestionarUsuarios;
 
   String get inicial {
     final u = nombreCompleto.trim().isNotEmpty ? nombreCompleto.trim() : nombreUsuario.trim();

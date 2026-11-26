@@ -212,15 +212,32 @@ class _FormularioProducto extends StatefulWidget {
 class _FormularioProductoState extends State<_FormularioProducto> {
   final _codigoCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  final _costoCtrl = TextEditingController(text: '0.00');
-  final _gananciaCtrl = TextEditingController(text: '20.00');
-  final _ventaCtrl = TextEditingController(text: '0.00');
-  final _mayoreoCtrl = TextEditingController(text: '0.00');
-  final _cantMayoreoCtrl = TextEditingController(text: '0');
-  final _existenciaCtrl = TextEditingController(text: '0');
-  final _minCtrl = TextEditingController(text: '0');
-  final _maxCtrl = TextEditingController(text: '0');
-  final _tasaIvaCtrl = TextEditingController(text: '16.00');
+  final _costoCtrl = TextEditingController();
+  final _gananciaCtrl = TextEditingController();
+  final _ventaCtrl = TextEditingController();
+  final _mayoreoCtrl = TextEditingController();
+  final _cantMayoreoCtrl = TextEditingController();
+  final _existenciaCtrl = TextEditingController();
+  final _minCtrl = TextEditingController();
+  final _maxCtrl = TextEditingController();
+  final _tasaIvaCtrl = TextEditingController();
+
+  // Cadena de FocusNodes para navegación secuencial con Enter (Eleventa)
+  final _focusCodigo = FocusNode();
+  final _focusDesc = FocusNode();
+  final _focusDepto = FocusNode();
+  final _focusTipoVenta = FocusNode();
+  final _focusCosto = FocusNode();
+  final _focusGanancia = FocusNode();
+  final _focusVenta = FocusNode();
+  final _focusMayoreo = FocusNode();
+  final _focusCantMayoreo = FocusNode();
+  final _focusUsaInv = FocusNode();
+  final _focusExistencia = FocusNode();
+  final _focusMin = FocusNode();
+  final _focusMax = FocusNode();
+  final _focusAplicaIva = FocusNode();
+  final _focusGuardar = FocusNode();
 
   String _tipoVenta = 'Unidad'; // 'Unidad' | 'Granel'
   int? _idDepartamento;
@@ -231,6 +248,18 @@ class _FormularioProductoState extends State<_FormularioProducto> {
   @override
   void initState() {
     super.initState();
+
+    // Auto-selección completa de texto al recibir foco para campos numéricos
+    _conectarAutoSelect(_focusCosto, _costoCtrl);
+    _conectarAutoSelect(_focusGanancia, _gananciaCtrl);
+    _conectarAutoSelect(_focusVenta, _ventaCtrl);
+    _conectarAutoSelect(_focusMayoreo, _mayoreoCtrl);
+    _conectarAutoSelect(_focusCantMayoreo, _cantMayoreoCtrl);
+    _conectarAutoSelect(_focusExistencia, _existenciaCtrl);
+    _conectarAutoSelect(_focusMin, _minCtrl);
+    _conectarAutoSelect(_focusMax, _maxCtrl);
+    _conectarAutoSelect(_focusAplicaIva, _tasaIvaCtrl);
+
     final p = widget.producto;
     if (p != null) {
       _codigoCtrl.text = p.codigoBarras;
@@ -255,7 +284,18 @@ class _FormularioProductoState extends State<_FormularioProducto> {
       if (widget.departamentos.isNotEmpty) {
         _idDepartamento = widget.departamentos.first.idDepartamento;
       }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusCodigo.requestFocus();
+      });
     }
+  }
+
+  void _conectarAutoSelect(FocusNode node, TextEditingController ctrl) {
+    node.addListener(() {
+      if (node.hasFocus && ctrl.text.isNotEmpty) {
+        ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+      }
+    });
   }
 
   @override
@@ -271,7 +311,45 @@ class _FormularioProductoState extends State<_FormularioProducto> {
     _minCtrl.dispose();
     _maxCtrl.dispose();
     _tasaIvaCtrl.dispose();
+
+    _focusCodigo.dispose();
+    _focusDesc.dispose();
+    _focusDepto.dispose();
+    _focusTipoVenta.dispose();
+    _focusCosto.dispose();
+    _focusGanancia.dispose();
+    _focusVenta.dispose();
+    _focusMayoreo.dispose();
+    _focusCantMayoreo.dispose();
+    _focusUsaInv.dispose();
+    _focusExistencia.dispose();
+    _focusMin.dispose();
+    _focusMax.dispose();
+    _focusAplicaIva.dispose();
+    _focusGuardar.dispose();
+
     super.dispose();
+  }
+
+  void _limpiarFormularioNuevo() {
+    _codigoCtrl.clear();
+    _descCtrl.clear();
+    _costoCtrl.clear();
+    _gananciaCtrl.clear();
+    _ventaCtrl.clear();
+    _mayoreoCtrl.clear();
+    _cantMayoreoCtrl.clear();
+    _existenciaCtrl.clear();
+    _minCtrl.clear();
+    _maxCtrl.clear();
+    _tasaIvaCtrl.clear();
+    _tipoVenta = 'Unidad';
+    _usaInventario = true;
+    _aplicaIva = false;
+    if (widget.departamentos.isNotEmpty) {
+      _idDepartamento = widget.departamentos.first.idDepartamento;
+    }
+    _focusCodigo.requestFocus();
   }
 
   void _calcularVenta() {
@@ -297,6 +375,7 @@ class _FormularioProductoState extends State<_FormularioProducto> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Código de barras y descripción son obligatorios'), backgroundColor: AppColors.error),
       );
+      _focusCodigo.requestFocus();
       return;
     }
 
@@ -334,6 +413,7 @@ class _FormularioProductoState extends State<_FormularioProducto> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Producto "$desc" creado exitosamente.'), backgroundColor: Colors.green.shade700),
           );
+          _limpiarFormularioNuevo();
         }
       } else {
         // ACTUALIZAR
@@ -374,6 +454,8 @@ class _FormularioProductoState extends State<_FormularioProducto> {
           SnackBar(content: Text('Error al guardar: $e'), backgroundColor: AppColors.error),
         );
       }
+    } finally {
+      if (mounted) setState(() => _guardando = false);
     }
   }
 
@@ -398,13 +480,14 @@ class _FormularioProductoState extends State<_FormularioProducto> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Código de barras
+                  // 1. Código de barras
                   _buildFila(
                     'Código de Barras *',
                     SizedBox(
                       width: 280,
                       child: TextField(
                         controller: _codigoCtrl,
+                        focusNode: _focusCodigo,
                         autofocus: widget.producto == null,
                         decoration: const InputDecoration(
                           prefixIcon: Icon(Icons.qr_code_scanner_rounded),
@@ -412,45 +495,161 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
+                        onSubmitted: (_) => _focusDesc.requestFocus(),
                       ),
                     ),
                   ),
                   const SizedBox(height: 14),
 
-                  // Descripción
+                  // 2. Descripción
                   _buildFila(
                     'Descripción *',
                     SizedBox(
                       width: 480,
                       child: TextField(
                         controller: _descCtrl,
+                        focusNode: _focusDesc,
                         decoration: const InputDecoration(
                           hintText: 'Ej. Coca Cola 600ml Desechable',
                           border: OutlineInputBorder(),
                           isDense: true,
+                        ),
+                        onSubmitted: (_) => _focusDepto.requestFocus(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 3. Departamento (Navegable 100% con teclado: Flecha Arriba / Flecha Abajo y Enter)
+                  _buildFila(
+                    'Departamento',
+                    Focus(
+                      focusNode: _focusDepto,
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+                        if (event.logicalKey == LogicalKeyboardKey.enter ||
+                            event.logicalKey == LogicalKeyboardKey.tab) {
+                          _focusTipoVenta.requestFocus();
+                          return KeyEventResult.handled;
+                        }
+
+                        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                          if (widget.departamentos.isNotEmpty) {
+                            final currentIndex = widget.departamentos.indexWhere(
+                              (d) => d.idDepartamento == _idDepartamento,
+                            );
+                            final nextIndex = (currentIndex + 1) % widget.departamentos.length;
+                            setState(() => _idDepartamento = widget.departamentos[nextIndex].idDepartamento);
+                          }
+                          return KeyEventResult.handled;
+                        } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                          if (widget.departamentos.isNotEmpty) {
+                            final currentIndex = widget.departamentos.indexWhere(
+                              (d) => d.idDepartamento == _idDepartamento,
+                            );
+                            final prevIndex = (currentIndex - 1 + widget.departamentos.length) % widget.departamentos.length;
+                            setState(() => _idDepartamento = widget.departamentos[prevIndex].idDepartamento);
+                          }
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: Container(
+                        width: 280,
+                        height: 42,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _focusDepto.hasFocus ? const Color(0xFFD97706) : Colors.grey.shade400,
+                            width: _focusDepto.hasFocus ? 2 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            value: _idDepartamento,
+                            isExpanded: true,
+                            focusNode: FocusNode(skipTraversal: true),
+                            hint: const Text('Seleccionar departamento [↑/↓]'),
+                            items: widget.departamentos
+                                .map((d) => DropdownMenuItem(value: d.idDepartamento, child: Text(d.nombreDepartamento)))
+                                .toList(),
+                            onChanged: (v) {
+                              setState(() => _idDepartamento = v);
+                              _focusTipoVenta.requestFocus();
+                            },
+                          ),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 14),
 
-                  // Se vende
+                  // 4. Tipo de venta (Navegable con Flechas Izq/Der y Enter para continuar)
                   _buildFila(
                     'Tipo de venta',
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Radio<String>(value: 'Unidad', groupValue: _tipoVenta, onChanged: (v) => setState(() => _tipoVenta = v!)),
-                        const Text('Por Unidad/Pza'),
-                        const SizedBox(width: 20),
-                        Radio<String>(value: 'Granel', groupValue: _tipoVenta, onChanged: (v) => setState(() => _tipoVenta = v!)),
-                        const Text('A Granel (Usa Decimales)'),
-                      ],
+                    Focus(
+                      focusNode: _focusTipoVenta,
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+                        if (event.logicalKey == LogicalKeyboardKey.enter ||
+                            event.logicalKey == LogicalKeyboardKey.tab) {
+                          _focusCosto.requestFocus();
+                          return KeyEventResult.handled;
+                        }
+
+                        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+                            event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                          setState(() => _tipoVenta = 'Unidad');
+                          return KeyEventResult.handled;
+                        } else if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
+                            event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                          setState(() => _tipoVenta = 'Granel');
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _focusTipoVenta.hasFocus ? const Color(0xFFD97706) : Colors.transparent,
+                            width: 1.5,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Radio<String>(
+                              value: 'Unidad',
+                              groupValue: _tipoVenta,
+                              onChanged: (v) {
+                                setState(() => _tipoVenta = v!);
+                                _focusCosto.requestFocus();
+                              },
+                            ),
+                            const Text('Por Unidad/Pza [←]'),
+                            const SizedBox(width: 20),
+                            Radio<String>(
+                              value: 'Granel',
+                              groupValue: _tipoVenta,
+                              onChanged: (v) {
+                                setState(() => _tipoVenta = v!);
+                                _focusCosto.requestFocus();
+                              },
+                            ),
+                            const Text('A Granel [→]'),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),
 
-                  // Costo y Ganancia
+                  // 5. Costo y Ganancia (Enter avanza al siguiente)
                   _buildFila(
                     'Precio Costo',
                     Row(
@@ -460,9 +659,16 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                           width: 140,
                           child: TextField(
                             controller: _costoCtrl,
+                            focusNode: _focusCosto,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(prefixText: '\$ ', border: OutlineInputBorder(), isDense: true),
+                            decoration: const InputDecoration(
+                              prefixText: '\$ ',
+                              hintText: '0.00',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
                             onChanged: (_) => _calcularVenta(),
+                            onSubmitted: (_) => _focusVenta.requestFocus(),
                           ),
                         ),
                         const SizedBox(width: 20),
@@ -472,9 +678,16 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                           width: 100,
                           child: TextField(
                             controller: _gananciaCtrl,
+                            focusNode: _focusGanancia,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(suffixText: '%', border: OutlineInputBorder(), isDense: true),
+                            decoration: const InputDecoration(
+                              suffixText: '%',
+                              hintText: '20.00',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
                             onChanged: (_) => _calcularVenta(),
+                            onSubmitted: (_) => _focusVenta.requestFocus(),
                           ),
                         ),
                       ],
@@ -482,22 +695,29 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Precio Venta
+                  // 6. Precio Venta
                   _buildFila(
                     'Precio Venta *',
                     SizedBox(
                       width: 140,
                       child: TextField(
                         controller: _ventaCtrl,
+                        focusNode: _focusVenta,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(prefixText: '\$ ', border: OutlineInputBorder(), isDense: true),
+                        decoration: const InputDecoration(
+                          prefixText: '\$ ',
+                          hintText: '0.00',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
                         onChanged: (_) => _calcularGanancia(),
+                        onSubmitted: (_) => _focusMayoreo.requestFocus(),
                       ),
                     ),
                   ),
                   const SizedBox(height: 14),
 
-                  // Mayoreo
+                  // 7. Mayoreo
                   _buildFila(
                     'Precio Mayoreo',
                     Row(
@@ -507,8 +727,15 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                           width: 140,
                           child: TextField(
                             controller: _mayoreoCtrl,
+                            focusNode: _focusMayoreo,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(prefixText: '\$ ', border: OutlineInputBorder(), isDense: true),
+                            decoration: const InputDecoration(
+                              prefixText: '\$ ',
+                              hintText: '0.00',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) => _focusCantMayoreo.requestFocus(),
                           ),
                         ),
                         const SizedBox(width: 20),
@@ -518,8 +745,14 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                           width: 100,
                           child: TextField(
                             controller: _cantMayoreoCtrl,
+                            focusNode: _focusCantMayoreo,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(hintText: 'Cant.', border: OutlineInputBorder(), isDense: true),
+                            decoration: const InputDecoration(
+                              hintText: 'Cant.',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) => _focusUsaInv.requestFocus(),
                           ),
                         ),
                       ],
@@ -527,127 +760,146 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Departamento
-                  _buildFila(
-                    'Departamento',
-                    Container(
-                      width: 280,
-                      height: 42,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(4)),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<int>(
-                          value: _idDepartamento,
-                          isExpanded: true,
-                          items: widget.departamentos
-                              .map((d) => DropdownMenuItem(value: d.idDepartamento, child: Text(d.nombreDepartamento)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _idDepartamento = v),
-                        ),
+                  // 8. Sección Control de Inventario
+                  KeyboardListener(
+                    focusNode: _focusUsaInv,
+                    onKeyEvent: (e) {
+                      if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter) {
+                        if (_usaInventario) {
+                          _focusExistencia.requestFocus();
+                        } else {
+                          _focusAplicaIva.requestFocus();
+                        }
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: _usaInventario,
+                                onChanged: (v) {
+                                  setState(() => _usaInventario = v ?? true);
+                                  if (_usaInventario) {
+                                    _focusExistencia.requestFocus();
+                                  } else {
+                                    _focusAplicaIva.requestFocus();
+                                  }
+                                },
+                              ),
+                              const Text(
+                                'Este producto utiliza control de Inventario',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E)),
+                              ),
+                            ],
+                          ),
+                          if (_usaInventario) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const SizedBox(width: 32),
+                                const Text('Existencia actual: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                                SizedBox(
+                                  width: 90,
+                                  child: TextField(
+                                    controller: _existenciaCtrl,
+                                    focusNode: _focusExistencia,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(hintText: '0', border: OutlineInputBorder(), isDense: true),
+                                    onSubmitted: (_) => _focusMin.requestFocus(),
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                const Text('Mínimo: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                                SizedBox(
+                                  width: 80,
+                                  child: TextField(
+                                    controller: _minCtrl,
+                                    focusNode: _focusMin,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(hintText: '0', border: OutlineInputBorder(), isDense: true),
+                                    onSubmitted: (_) => _focusMax.requestFocus(),
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                const Text('Máximo: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                                SizedBox(
+                                  width: 80,
+                                  child: TextField(
+                                    controller: _maxCtrl,
+                                    focusNode: _focusMax,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(hintText: '0', border: OutlineInputBorder(), isDense: true),
+                                    onSubmitted: (_) => _focusAplicaIva.requestFocus(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 14),
 
-                  // IVA
+                  // 9. IVA (Enter avanza al botón Guardar)
                   _buildFila(
                     'Impuestos',
-                    Row(
-                      children: [
-                        Checkbox(value: _aplicaIva, onChanged: (v) => setState(() => _aplicaIva = v ?? false)),
-                        const Text('Aplica IVA'),
-                        if (_aplicaIva) ...[
-                          const SizedBox(width: 16),
-                          const Text('Tasa:'),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 80,
-                            child: TextField(
-                              controller: _tasaIvaCtrl,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: const InputDecoration(suffixText: '%', border: OutlineInputBorder(), isDense: true),
-                            ),
+                    KeyboardListener(
+                      focusNode: _focusAplicaIva,
+                      onKeyEvent: (e) {
+                        if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter) {
+                          _focusGuardar.requestFocus();
+                        }
+                      },
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: _aplicaIva,
+                            onChanged: (v) {
+                              setState(() => _aplicaIva = v ?? false);
+                              _focusGuardar.requestFocus();
+                            },
                           ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Sección Inventario
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBEB),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFFDE68A)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _usaInventario,
-                              onChanged: (v) => setState(() => _usaInventario = v ?? true),
-                            ),
-                            const Text(
-                              'Este producto utiliza control de Inventario',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E)),
+                          const Text('Aplica IVA'),
+                          if (_aplicaIva) ...[
+                            const SizedBox(width: 16),
+                            const Text('Tasa:'),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 80,
+                              child: TextField(
+                                controller: _tasaIvaCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(hintText: '16.00', suffixText: '%', border: OutlineInputBorder(), isDense: true),
+                                onSubmitted: (_) => _focusGuardar.requestFocus(),
+                              ),
                             ),
                           ],
-                        ),
-                        if (_usaInventario) ...[
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              const SizedBox(width: 32),
-                              const Text('Existencia actual: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                              SizedBox(
-                                width: 90,
-                                child: TextField(
-                                  controller: _existenciaCtrl,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                ),
-                              ),
-                              const SizedBox(width: 20),
-                              const Text('Mínimo: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                              SizedBox(
-                                width: 80,
-                                child: TextField(
-                                  controller: _minCtrl,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                ),
-                              ),
-                              const SizedBox(width: 20),
-                              const Text('Máximo: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                              SizedBox(
-                                width: 80,
-                                child: TextField(
-                                  controller: _maxCtrl,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // Botón Guardar
+                  // 10. Botón Guardar Producto (Foco y Enter directo)
                   Align(
                     alignment: Alignment.centerRight,
                     child: ElevatedButton.icon(
+                      focusNode: _focusGuardar,
                       onPressed: _guardando ? null : _guardar,
                       icon: _guardando
                           ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                           : const Icon(Icons.save),
-                      label: Text(widget.producto == null ? 'Guardar Producto' : 'Guardar Cambios'),
+                      label: Text(widget.producto == null ? 'Guardar Producto [ENTER]' : 'Guardar Cambios [ENTER]'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFD97706),
                         foregroundColor: Colors.white,

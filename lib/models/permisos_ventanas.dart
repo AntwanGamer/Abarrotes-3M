@@ -19,6 +19,7 @@ class PermisosVentanas {
   static const String clientesEditarKey = 'clientes_editar';
   static const String reportesVerKey = 'reportes_ver';
   static const String usuariosGestionarKey = 'usuarios_gestionar';
+  static const String configuracionKey = 'configuracion';
 
   final Map<String, bool> _permisos;
 
@@ -61,6 +62,7 @@ class PermisosVentanas {
         clientesEditarKey: false,
         reportesVerKey: false,
         usuariosGestionarKey: false,
+        configuracionKey: false,
       };
 
   /// Todos los permisos activos (para el usuario administrador o principal).
@@ -72,6 +74,7 @@ class PermisosVentanas {
         clientesEditarKey: true,
         reportesVerKey: true,
         usuariosGestionarKey: true,
+        configuracionKey: true,
       });
 
   /// Permisos para cajero estándar.
@@ -116,6 +119,7 @@ class PermisosVentanas {
   bool get clientesEditar => tieneAcceso(clientesEditarKey);
   bool get reportesVer => tieneAcceso(reportesVerKey);
   bool get usuariosGestionar => tieneAcceso(usuariosGestionarKey);
+  bool get configuracion => tieneAcceso(configuracionKey);
 
   /// Devuelve una copia con un permiso actualizado respetando dependencias:
   /// - Si activa inventario_editar -> activa inventario_ver.
@@ -159,6 +163,7 @@ class PermisosVentanas {
     bool? clientesEditar,
     bool? reportesVer,
     bool? usuariosGestionar,
+    bool? configuracion,
   }) {
     final nuevos = Map<String, bool>.from(_permisos);
     if (puntoVenta != null) nuevos[puntoVentaKey] = puntoVenta;
@@ -168,6 +173,7 @@ class PermisosVentanas {
     if (clientesEditar != null) nuevos[clientesEditarKey] = clientesEditar;
     if (reportesVer != null) nuevos[reportesVerKey] = reportesVer;
     if (usuariosGestionar != null) nuevos[usuariosGestionarKey] = usuariosGestionar;
+    if (configuracion != null) nuevos[configuracionKey] = configuracion;
     return PermisosVentanas(_normalizarPermisos(nuevos));
   }
 

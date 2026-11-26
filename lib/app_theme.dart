@@ -35,6 +35,7 @@ class AppColors {
   static const Color corteIcon = Color(0xFF134E4A);      // Verde azulado oscuro / teal característico de Eleventa para Corte
   static const Color reportesIcon = Color(0xFF1E3A5F);   // Azul marino / pizarra característico de Eleventa para Reportes
   static const Color usuariosIcon = Color(0xFF5B45B2);   // Púrpura intenso característico para Usuarios / Admin
+  static const Color configuracionIcon = Color(0xFF475569); // Gris pizarra / Slate para Configuración y Ajustes
 }
 
 /// Clase con los estilos de texto reutilizables.

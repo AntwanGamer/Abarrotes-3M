@@ -49,6 +49,12 @@ class VentasRepository {
 
   VentasRepository(this._db);
 
+  static VentasRepository? _instance;
+  static VentasRepository get instance {
+    _instance ??= VentasRepository(DatabaseService.instance);
+    return _instance!;
+  }
+
   /// Registra una venta completa dentro de una transacción ACID:
   /// 1. Genera `folio_ticket` (ej. `T-000001`) e inserta en `tbl_ventas`.
   /// 2. Inserta cada línea en `tbl_detalle_ventas`.
@@ -289,5 +295,159 @@ class VentasRepository {
       },
     );
     dev.log('[VentasRepository] Venta cancelada: #$idVenta');
+  }
+
+  /// Cancela una venta, devuelve las existencias en [tbl_productos], registra
+  /// el movimiento en [tbl_movimientos_inventario] con tipo 'Cancelacion' y revierte saldos/cortes.
+  Future<void> cancelarVentaConDevolucion({
+    required int idVenta,
+    required int idUsuario,
+    String motivo = 'Devolución / Cancelación en caja',
+  }) async {
+    final terminalId = _db.terminalId;
+
+    await _db.transaction((session) async {
+      final vRes = await session.execute(
+        Sql.named('SELECT * FROM tbl_ventas WHERE id_venta = @id FOR UPDATE'),
+        parameters: {'id': idVenta},
+      );
+      if (vRes.isEmpty) throw Exception('Venta no encontrada');
+      final vMap = vRes.first.toColumnMap();
+      final estatusActual = parsePgString(vMap['estatus_venta']);
+      if (estatusActual == 'Cancelada') {
+        throw Exception('La venta ya se encuentra cancelada.');
+      }
+      final total = parseDecimal(vMap['total']);
+      final esCredito = vMap['es_credito'] == true;
+      final idCliente = vMap['id_cliente'] != null ? parseIntSafe(vMap['id_cliente']) : null;
+      final idCorte = vMap['id_corte'] != null ? parseIntSafe(vMap['id_corte']) : null;
+
+      await session.execute(
+        Sql.named('''UPDATE tbl_ventas SET
+             estatus_venta = 'Cancelada',
+             motivo_cancelacion = @motivo,
+             fecha_actualizacion = CURRENT_TIMESTAMP,
+             sincronizado = FALSE,
+             terminal_origen = @terminal
+             WHERE id_venta = @id'''),
+        parameters: {
+          'id': idVenta,
+          'motivo': motivo,
+          'terminal': terminalId,
+        },
+      );
+
+      final detRes = await session.execute(
+        Sql.named('SELECT * FROM tbl_detalle_ventas WHERE id_venta = @id'),
+        parameters: {'id': idVenta},
+      );
+
+      for (final r in detRes) {
+        final m = r.toColumnMap();
+        final idProd = parseIntSafe(m['id_producto']);
+        final cant = parseDecimal(m['cantidad']);
+
+        final pRes = await session.execute(
+          Sql.named('SELECT usa_inventario FROM tbl_productos WHERE id_producto = @p'),
+          parameters: {'p': idProd},
+        );
+        if (pRes.isNotEmpty && pRes.first.toColumnMap()['usa_inventario'] == true) {
+          await session.execute(
+            Sql.named('''UPDATE tbl_productos
+                 SET existencia = existencia + @cant,
+                     fecha_actualizacion = CURRENT_TIMESTAMP,
+                     sincronizado = FALSE
+                 WHERE id_producto = @p'''),
+            parameters: {'cant': cant, 'p': idProd},
+          );
+
+          await session.execute(
+            Sql.named('''INSERT INTO tbl_movimientos_inventario
+                 (id_producto, tipo_movimiento, cantidad, id_usuario, motivo,
+                  fecha_movimiento, fecha_registro, fecha_actualizacion,
+                  sincronizado, terminal_origen)
+                 VALUES
+                 (@p, 'Cancelacion', @cant, @u, @motivo,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                  FALSE, @terminal)'''),
+            parameters: {
+              'p': idProd,
+              'cant': cant,
+              'u': idUsuario,
+              'motivo': motivo,
+              'terminal': terminalId,
+            },
+          );
+        }
+      }
+
+      if (esCredito && idCliente != null) {
+        await session.execute(
+          Sql.named('''UPDATE tbl_clientes
+               SET saldo_actual = GREATEST(0, saldo_actual - @total),
+                   fecha_actualizacion = CURRENT_TIMESTAMP,
+                   sincronizado = FALSE
+               WHERE id_cliente = @c'''),
+          parameters: {'total': total, 'c': idCliente},
+        );
+      }
+
+      if (idCorte != null) {
+        final pagosEfeRes = await session.execute(
+          Sql.named('''SELECT COALESCE(SUM(monto - cambio), 0) AS efe
+               FROM tbl_pagos_venta pv
+               JOIN tbl_formas_pago fp ON pv.id_forma_pago = fp.id_forma_pago
+               WHERE pv.id_venta = @id AND fp.nombre_forma_pago = 'Efectivo' '''),
+          parameters: {'id': idVenta},
+        );
+        final efe = pagosEfeRes.isNotEmpty ? parseDecimal(pagosEfeRes.first.toColumnMap()['efe']) : 0.0;
+
+        await session.execute(
+          Sql.named('''UPDATE tbl_cortes_caja
+               SET total_ventas = GREATEST(0, total_ventas - @total),
+                   efectivo_esperado = GREATEST(0, efectivo_esperado - @efe),
+                   fecha_actualizacion = CURRENT_TIMESTAMP,
+                   sincronizado = FALSE
+               WHERE id_corte = @corte'''),
+          parameters: {
+            'total': total,
+            'efe': efe,
+            'corte': idCorte,
+          },
+        );
+      }
+    });
+    dev.log('[VentasRepository] ✅ Venta #$idVenta cancelada con devolución de inventario');
+  }
+
+  /// Consulta la última venta completada con su detalle y pagos para reimpresión.
+  Future<Map<String, dynamic>?> obtenerUltimaVentaCompletada() async {
+    final res = await _db.query(
+      '''SELECT v.*, u.nombre_completo AS usuario_nombre, c.nombre AS cliente_nombre
+         FROM tbl_ventas v
+         LEFT JOIN tbl_usuarios u ON v.id_usuario = u.id_usuario
+         LEFT JOIN tbl_clientes c ON v.id_cliente = c.id_cliente
+         WHERE v.estatus_venta::text = 'Completada'
+         ORDER BY v.id_venta DESC
+         LIMIT 1''',
+    );
+    if (res.isEmpty) return null;
+    final ventaMap = res.first.toColumnMap();
+    final idVenta = parseIntSafe(ventaMap['id_venta']);
+    final detalles = await obtenerDetalle(idVenta);
+    final pagosRes = await _db.query(
+      '''SELECT pv.*, fp.nombre_forma_pago
+         FROM tbl_pagos_venta pv
+         LEFT JOIN tbl_formas_pago fp ON pv.id_forma_pago = fp.id_forma_pago
+         WHERE pv.id_venta = @id''',
+      params: {'id': idVenta},
+    );
+    return {
+      'venta': Venta.fromMap(ventaMap),
+      'usuario_nombre': parsePgString(ventaMap['usuario_nombre']),
+      'cliente_nombre': parsePgString(ventaMap['cliente_nombre']),
+      'detalles': detalles,
+      'pagos': pagosRes.map((r) => r.toColumnMap()).toList(),
+    };
   }
 }

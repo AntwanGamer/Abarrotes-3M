@@ -13,7 +13,7 @@ import 'inventario_view.dart';
 import 'clientes_view.dart';
 import 'corte_view.dart';
 import 'reportes_view.dart';
-import 'usuarios_view.dart';
+import 'configuracion_view.dart';
 
 /// Pantalla principal después del login (Punto de Venta).
 /// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_manejarTecladoGlobal);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
       _verificarTurnoInicial();
@@ -42,8 +43,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_manejarTecladoGlobal);
     _focusNode.dispose();
     super.dispose();
+  }
+
+  bool _manejarTecladoGlobal(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+
+    // Atajos globales F1-F4 funcionan desde cualquier módulo
+    if (event.logicalKey == LogicalKeyboardKey.f1) {
+      if (_moduloSeleccionado != 'Ventas') {
+        setState(() => _moduloSeleccionado = 'Ventas');
+      }
+      return false; // Permite que VentasView reciba F1 si lo necesita
+    } else if (event.logicalKey == LogicalKeyboardKey.f2) {
+      if (_moduloSeleccionado != 'Clientes') {
+        setState(() => _moduloSeleccionado = 'Clientes');
+      }
+      return true;
+    } else if (event.logicalKey == LogicalKeyboardKey.f3) {
+      if (_moduloSeleccionado != 'Productos') {
+        setState(() => _moduloSeleccionado = 'Productos');
+      }
+      return true;
+    } else if (event.logicalKey == LogicalKeyboardKey.f4) {
+      if (_moduloSeleccionado != 'Inventario') {
+        setState(() => _moduloSeleccionado = 'Inventario');
+      }
+      return true;
+    }
+    return false;
   }
 
   UsuarioDB get _usuarioActivo {
@@ -137,12 +167,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return AppColors.productosIcon;
       case 'Inventario':
         return AppColors.inventarioIcon;
+      case 'Configuración':
+        return AppColors.configuracionIcon;
       case 'Corte':
         return AppColors.corteIcon;
       case 'Reportes':
         return AppColors.reportesIcon;
-      case 'Usuarios':
-        return AppColors.usuariosIcon;
       default:
         return AppColors.primary;
     }
@@ -158,12 +188,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return Icons.inventory_2_outlined;
       case 'Inventario':
         return Icons.warehouse_outlined;
+      case 'Configuración':
+        return Icons.settings_rounded;
       case 'Corte':
         return Icons.content_cut_rounded;
       case 'Reportes':
         return Icons.bar_chart_rounded;
-      case 'Usuarios':
-        return Icons.manage_accounts_rounded;
       default:
         return Icons.apps_rounded;
     }
@@ -177,21 +207,15 @@ class _HomeScreenState extends State<HomeScreen> {
         autofocus: true,
         onKeyEvent: (event) {
           if (event is KeyDownEvent) {
+            // Atajos globales idénticos a Eleventa (F1 a F4 únicamente a nivel aplicación)
             if (event.logicalKey == LogicalKeyboardKey.f1) {
               setState(() => _moduloSeleccionado = 'Ventas');
             } else if (event.logicalKey == LogicalKeyboardKey.f2) {
-              setState(() => _moduloSeleccionado = 'Productos');
+              setState(() => _moduloSeleccionado = 'Créditos');
             } else if (event.logicalKey == LogicalKeyboardKey.f3) {
-              setState(() => _moduloSeleccionado = 'Inventario');
+              setState(() => _moduloSeleccionado = 'Productos');
             } else if (event.logicalKey == LogicalKeyboardKey.f4) {
-              setState(() => _moduloSeleccionado = 'Clientes');
-            } else if (event.logicalKey == LogicalKeyboardKey.f5) {
-              setState(() => _moduloSeleccionado = 'Corte');
-            } else if (event.logicalKey == LogicalKeyboardKey.f6) {
-              setState(() => _moduloSeleccionado = 'Reportes');
-            } else if (event.logicalKey == LogicalKeyboardKey.f7 &&
-                _usuarioActivo.puedeGestionarUsuarios) {
-              setState(() => _moduloSeleccionado = 'Usuarios');
+              setState(() => _moduloSeleccionado = 'Inventario');
             }
           }
         },
@@ -220,9 +244,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? const CorteView()
                                   : (_moduloSeleccionado == 'Reportes'
                                       ? const ReportesView()
-                                      : (_moduloSeleccionado == 'Usuarios' &&
-                                              _usuarioActivo.puedeGestionarUsuarios
-                                          ? const UsuariosView()
+                                      : (_moduloSeleccionado == 'Configuración' &&
+                                              _usuarioActivo.tieneAccesoAjustes
+                                          ? ConfiguracionView(usuario: _usuarioActivo)
                                           : const VentasView())))))),
             ),
           ],
@@ -346,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  // Botón 1: Ventas
+                  // 1. F1 Ventas
                   _buildBotonModulo(
                     titulo: 'Ventas',
                     atajo: 'F1',
@@ -355,34 +379,45 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Botón 2: Clientes (disponible para ambos usuarios)
+                  // 2. F2 Clientes (unifica gestión, saldo y abonos)
                   _buildBotonModulo(
                     titulo: 'Clientes',
-                    atajo: null,
+                    atajo: 'F2',
                     icono: Icons.people_alt_rounded,
                     colorIcono: AppColors.clientesIcon,
                   ),
                   const SizedBox(width: 8),
 
-                  // Botón 3: Productos
+                  // 3. F3 Productos
                   _buildBotonModulo(
                     titulo: 'Productos',
-                    atajo: 'F2',
+                    atajo: 'F3',
                     icono: Icons.inventory_2_outlined,
                     colorIcono: AppColors.productosIcon,
                   ),
                   const SizedBox(width: 8),
 
-                  // Botón 4: Inventario
+                  // 4. F4 Inventario
                   _buildBotonModulo(
                     titulo: 'Inventario',
-                    atajo: 'F3',
+                    atajo: 'F4',
                     icono: Icons.warehouse_outlined,
                     colorIcono: AppColors.inventarioIcon,
                   ),
                   const SizedBox(width: 8),
 
-                  // Botón 5: Corte (estilo Eleventa)
+                  // 5. Configuración (solo si tiene acceso)
+                  if (_usuarioActivo.tieneAccesoAjustes) ...[
+                    _buildBotonModulo(
+                      titulo: 'Configuración',
+                      atajo: null,
+                      icono: Icons.settings_rounded,
+                      colorIcono: AppColors.configuracionIcon,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+
+                  // 6. Corte
                   _buildBotonModulo(
                     titulo: 'Corte',
                     atajo: null,
@@ -391,24 +426,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Botón 6: Reportes (estilo Eleventa)
+                  // 7. Reportes
                   _buildBotonModulo(
                     titulo: 'Reportes',
                     atajo: null,
                     icono: Icons.bar_chart_rounded,
                     colorIcono: AppColors.reportesIcon,
                   ),
-
-                  // Botón 7: Usuarios (Exclusivo Administrador)
-                  if (_usuarioActivo.puedeGestionarUsuarios) ...[
-                    const SizedBox(width: 8),
-                    _buildBotonModulo(
-                      titulo: 'Usuarios',
-                      atajo: 'F7',
-                      icono: Icons.manage_accounts_rounded,
-                      colorIcono: AppColors.usuariosIcon,
-                    ),
-                  ],
 
                   const SizedBox(width: 16),
 

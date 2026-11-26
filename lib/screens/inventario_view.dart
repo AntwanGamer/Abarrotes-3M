@@ -11,7 +11,8 @@ import '../repositories/productos_repository.dart';
 /// Vista principal del módulo de Inventario (estilo Eleventa).
 /// Conecta las 6 sub-pestañas directamente a PostgreSQL local.
 class InventarioView extends StatefulWidget {
-  const InventarioView({super.key});
+  final String? subOpcionInicial;
+  const InventarioView({super.key, this.subOpcionInicial});
 
   @override
   State<InventarioView> createState() => _InventarioViewState();
@@ -28,6 +29,9 @@ class _InventarioViewState extends State<InventarioView> {
   @override
   void initState() {
     super.initState();
+    if (widget.subOpcionInicial != null) {
+      _subOpcion = widget.subOpcionInicial!;
+    }
     _cargarDepartamentos();
   }
 
