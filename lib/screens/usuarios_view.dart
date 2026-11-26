@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
-import '../models/usuario.dart';
+import '../models/usuario_db.dart';
+import '../models/permisos_ventanas.dart';
 import '../services/usuario_service.dart';
 
-/// Vista del módulo de Usuarios (Exclusiva para Administrador).
-/// Permite listar, buscar, agregar, editar y eliminar usuarios del sistema.
-/// Estructura del formulario:
-/// - Usuario: Nombre de Usuario, Contraseña, Confirmar contraseña
-/// - Datos generales: Nombres, Apellidos, Teléfono
-/// - Rol: Empleado o Administrador
+/// Vista del módulo de Gestión de Usuarios.
+///
+/// Permite listar, crear, editar y dar de baja usuarios en PostgreSQL local.
+/// Los roles fueron eliminados y reemplazados por una asignación granular
+/// de permisos por ventana y acción (lectura vs escritura).
 class UsuariosView extends StatefulWidget {
   const UsuariosView({super.key});
 
@@ -19,31 +19,38 @@ class UsuariosView extends StatefulWidget {
 class _UsuariosViewState extends State<UsuariosView> {
   final UsuarioService _usuarioService = UsuarioService();
 
-  // Controladores de texto para el formulario
+  // Controladores de formulario
+  final _nombreCompletoController = TextEditingController();
   final _usuarioController = TextEditingController();
   final _contrasenaController = TextEditingController();
   final _confirmarContrasenaController = TextEditingController();
-  final _nombresController = TextEditingController();
-  final _apellidosController = TextEditingController();
-  final _telefonoController = TextEditingController();
   final _buscarController = TextEditingController();
 
-  // Estados del formulario
-  int? _idSeleccionado = 1;
-  String _rolSeleccionado = 'Empleado';
+  // Estado del usuario seleccionado
+  int? _idSeleccionado;
   bool _ocultarContrasena = true;
   bool _ocultarConfirmar = true;
+  bool _guardando = false;
 
-  // Filtros
+  // Permisos en edición del formulario
+  PermisosVentanas _permisosEnEdicion = const PermisosVentanas({
+    'punto_venta': true,
+    'inventario_ver': false,
+    'inventario_editar': false,
+    'clientes_ver': false,
+    'clientes_editar': false,
+    'reportes_ver': false,
+    'usuarios_gestionar': false,
+  });
+
   String _filtroBusqueda = '';
-  String _filtroRol = 'Todos'; // 'Todos', 'Administrador', 'Empleado'
 
   @override
   void initState() {
     super.initState();
     _usuarioService.addListener(_onServiceChanged);
 
-    // Cargar por defecto el primer usuario si existe
+    // Inicializar cargando el primer usuario si existe
     if (_usuarioService.usuarios.isNotEmpty) {
       _cargarUsuarioEnFormulario(_usuarioService.usuarios.first);
     }
@@ -52,89 +59,99 @@ class _UsuariosViewState extends State<UsuariosView> {
   @override
   void dispose() {
     _usuarioService.removeListener(_onServiceChanged);
+    _nombreCompletoController.dispose();
     _usuarioController.dispose();
     _contrasenaController.dispose();
     _confirmarContrasenaController.dispose();
-    _nombresController.dispose();
-    _apellidosController.dispose();
-    _telefonoController.dispose();
     _buscarController.dispose();
     super.dispose();
   }
 
   void _onServiceChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        if (_idSeleccionado != null &&
+            !_usuarioService.usuarios.any((u) => u.idUsuario == _idSeleccionado)) {
+          if (_usuarioService.usuarios.isNotEmpty) {
+            _cargarUsuarioEnFormulario(_usuarioService.usuarios.first);
+          } else {
+            _iniciarNuevoUsuario();
+          }
+        }
+      });
+    }
   }
 
-  /// Lista de usuarios filtrada por búsqueda y por rol
-  List<Usuario> get _usuariosFiltrados {
+  List<UsuarioDB> get _usuariosFiltrados {
     final query = _filtroBusqueda.trim().toLowerCase();
+    if (query.isEmpty) return _usuarioService.usuarios;
     return _usuarioService.usuarios.where((u) {
-      final cumpleRol = _filtroRol == 'Todos' ||
-          u.rol.toLowerCase() == _filtroRol.toLowerCase();
-
-      if (!cumpleRol) return false;
-      if (query.isEmpty) return true;
-
-      return u.nombreUsuario.toLowerCase().contains(query) ||
-          u.nombres.toLowerCase().contains(query) ||
-          u.apellidos.toLowerCase().contains(query) ||
-          u.telefono.toLowerCase().contains(query) ||
-          u.rol.toLowerCase().contains(query);
+      return u.nombreUsuario.toLowerCase().contains(query);
     }).toList();
   }
 
-  Usuario? get _usuarioActual {
+  UsuarioDB? get _usuarioActual {
     if (_idSeleccionado == null) return null;
     return _usuarioService.buscarPorId(_idSeleccionado!);
   }
 
-  /// Carga los datos de un usuario en los campos del formulario para edición
-  void _cargarUsuarioEnFormulario(Usuario usuario) {
+  void _cargarUsuarioEnFormulario(UsuarioDB usuario) {
     setState(() {
-      _idSeleccionado = usuario.id;
+      _idSeleccionado = usuario.idUsuario;
+      _nombreCompletoController.text = usuario.nombreCompleto;
       _usuarioController.text = usuario.nombreUsuario;
-      _contrasenaController.text = usuario.contrasena;
-      _confirmarContrasenaController.text = usuario.contrasena;
-      _nombresController.text = usuario.nombres;
-      _apellidosController.text = usuario.apellidos;
-      _telefonoController.text = usuario.telefono;
-      _rolSeleccionado = usuario.rol;
+      _contrasenaController.clear();
+      _confirmarContrasenaController.clear();
+      _permisosEnEdicion = usuario.permisosVentanas;
       _ocultarContrasena = true;
       _ocultarConfirmar = true;
     });
   }
 
-  /// Limpia los campos para iniciar el registro de un nuevo usuario
   void _iniciarNuevoUsuario() {
     setState(() {
       _idSeleccionado = null;
+      _nombreCompletoController.clear();
       _usuarioController.clear();
       _contrasenaController.clear();
       _confirmarContrasenaController.clear();
-      _nombresController.clear();
-      _apellidosController.clear();
-      _telefonoController.clear();
-      _rolSeleccionado = 'Empleado';
+      _permisosEnEdicion = const PermisosVentanas({
+        'punto_venta': true,
+        'inventario_ver': false,
+        'inventario_editar': false,
+        'clientes_ver': false,
+        'clientes_editar': false,
+        'reportes_ver': false,
+        'usuarios_gestionar': false,
+      });
       _ocultarContrasena = true;
       _ocultarConfirmar = true;
     });
     _mostrarMensaje('Formulario listo para nuevo usuario');
   }
 
-  /// Guarda el usuario (crear nuevo o actualizar existente)
-  void _guardarUsuario() {
+  /// Actualiza un permiso en el formulario respetando las dependencias:
+  /// - Activar editar -> activa ver.
+  /// - Desactivar ver -> desactiva editar.
+  void _actualizarPermiso(String clave, bool valor) {
+    setState(() {
+      _permisosEnEdicion = _permisosEnEdicion.conPermiso(clave, valor);
+    });
+  }
+
+  Future<void> _guardarUsuario() async {
+    final nombreCompleto = _nombreCompletoController.text.trim();
     final nombreUsuario = _usuarioController.text.trim();
     final contrasena = _contrasenaController.text.trim();
-    final confirmarContrasena = _confirmarContrasenaController.text.trim();
-    final nombres = _nombresController.text.trim();
-    final apellidos = _apellidosController.text.trim();
-    final telefono = _telefonoController.text.trim();
-    final rol = _rolSeleccionado;
+    final confirmar = _confirmarContrasenaController.text.trim();
 
-    // 1. Validaciones de Usuario
+    // 1. Validar nombre de usuario
     if (nombreUsuario.isEmpty) {
-      _mostrarMensaje('Por favor ingresa el Nombre de Usuario', esError: true);
+      _mostrarMensaje('El Nombre de Usuario no puede estar vacío', esError: true);
+      return;
+    }
+    if (nombreUsuario.contains(' ')) {
+      _mostrarMensaje('El Nombre de Usuario no puede contener espacios', esError: true);
       return;
     }
 
@@ -143,104 +160,65 @@ class _UsuariosViewState extends State<UsuariosView> {
       return;
     }
 
-    // 2. Validaciones de Contraseña
+    // 2. Validar contraseña
     if (_idSeleccionado == null) {
-      // Modo Nuevo: contraseña obligatoria
+      // Modo nuevo
       if (contrasena.isEmpty) {
-        _mostrarMensaje('La contraseña no puede estar vacía', esError: true);
+        _mostrarMensaje('Ingresa una contraseña para el nuevo usuario', esError: true);
         return;
       }
-      if (contrasena != confirmarContrasena) {
+      if (contrasena != confirmar) {
         _mostrarMensaje('Las contraseñas no coinciden', esError: true);
         return;
       }
     } else {
-      // Modo Edición: si escribió contraseña, debe coincidir
-      if (contrasena.isNotEmpty && contrasena != confirmarContrasena) {
+      // Modo edición: solo si escribe una nueva
+      if (contrasena.isNotEmpty && contrasena != confirmar) {
         _mostrarMensaje('Las contraseñas no coinciden', esError: true);
         return;
       }
     }
 
-    // 3. Validaciones de Datos Generales
-    if (nombres.isEmpty) {
-      _mostrarMensaje('Por favor ingresa los Nombres del usuario', esError: true);
-      return;
-    }
+    setState(() => _guardando = true);
 
-    // 4. Guardar o Actualizar
-    if (_idSeleccionado == null) {
-      // Crear nuevo usuario
-      final nuevo = _usuarioService.agregarUsuario(
-        nombreUsuario: nombreUsuario,
-        contrasena: contrasena,
-        nombres: nombres,
-        apellidos: apellidos,
-        telefono: telefono,
-        rol: rol,
-      );
-      setState(() {
-        _idSeleccionado = nuevo.id;
-      });
-      _mostrarMensaje('Usuario "$nombreUsuario" registrado exitosamente');
-    } else {
-      // Actualizar usuario existente
-      final usuarioActual = _usuarioActual;
-      if (usuarioActual == null) return;
-
-      final contrasenaFinal = contrasena.isNotEmpty ? contrasena : usuarioActual.contrasena;
-
-      final usuarioModificado = usuarioActual.copyWith(
-        nombreUsuario: nombreUsuario,
-        contrasena: contrasenaFinal,
-        nombres: nombres,
-        apellidos: apellidos,
-        telefono: telefono,
-        rol: rol,
-      );
-
-      _usuarioService.actualizarUsuario(usuarioModificado);
-      _mostrarMensaje('Usuario "$nombreUsuario" actualizado exitosamente');
+    try {
+      if (_idSeleccionado == null) {
+        // Crear usuario en PostgreSQL local
+        final nuevo = await _usuarioService.agregarUsuario(
+          nombreCompleto: nombreCompleto.isEmpty ? nombreUsuario : nombreCompleto,
+          nombreUsuario: nombreUsuario,
+          contrasena: contrasena,
+          permisos: _permisosEnEdicion,
+        );
+        setState(() {
+          _idSeleccionado = nuevo.idUsuario;
+        });
+        _mostrarMensaje('Usuario "$nombreUsuario" creado exitosamente en PostgreSQL local');
+      } else {
+        // Actualizar usuario en PostgreSQL local
+        await _usuarioService.actualizarUsuario(
+          idUsuario: _idSeleccionado!,
+          nombreCompleto: nombreCompleto.isEmpty ? nombreUsuario : nombreCompleto,
+          nombreUsuario: nombreUsuario,
+          contrasena: contrasena.isNotEmpty ? contrasena : null,
+          permisos: _permisosEnEdicion,
+        );
+        _mostrarMensaje('Usuario "$nombreUsuario" y permisos actualizados correctamente');
+      }
+    } catch (e) {
+      _mostrarMensaje('Error al guardar en base de datos: $e', esError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _guardando = false);
+      }
     }
   }
 
-  /// Elimina el usuario seleccionado con confirmación y reglas de seguridad
-  void _eliminarUsuario() {
+  Future<void> _eliminarUsuario() async {
     final usuario = _usuarioActual;
-    if (usuario == null) {
-      _mostrarMensaje('Selecciona un usuario para eliminar', esError: true);
-      return;
-    }
+    if (usuario == null) return;
 
-    // Regla de seguridad: no eliminar al único admin
-    if (usuario.esAdmin && _usuarioService.totalAdmins <= 1) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: const Row(
-            children: [
-              Icon(Icons.shield_rounded, color: AppColors.error),
-              SizedBox(width: 8),
-              Text('Operación no permitida'),
-            ],
-          ),
-          content: const Text(
-            'No puedes eliminar al único Administrador del sistema. '
-            'Debes asignar el rol de Administrador a otro usuario antes de eliminar este.',
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Entendido'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -248,47 +226,16 @@ class _UsuariosViewState extends State<UsuariosView> {
           children: [
             Icon(Icons.warning_amber_rounded, color: AppColors.error),
             SizedBox(width: 8),
-            Text('Eliminar Usuario'),
+            Text('Desactivar Usuario'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '¿Estás seguro de que deseas eliminar permanentemente la cuenta del usuario '
-              '"${usuario.nombreUsuario}" (${usuario.nombreCompleto})?',
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFFCA5A5)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.error),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Rol: ${usuario.rol}  •  ID #${usuario.id}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.error,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        content: Text(
+          '¿Estás seguro de que deseas desactivar la cuenta "@${usuario.nombreUsuario}"?\n'
+          'El usuario ya no podrá iniciar sesión en el Punto de Venta.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
@@ -296,25 +243,36 @@ class _UsuariosViewState extends State<UsuariosView> {
               backgroundColor: AppColors.error,
               foregroundColor: Colors.white,
             ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              final eliminado = _usuarioService.eliminarUsuario(usuario.id);
-              if (eliminado) {
-                if (_usuarioService.usuarios.isNotEmpty) {
-                  _cargarUsuarioEnFormulario(_usuarioService.usuarios.first);
-                } else {
-                  _iniciarNuevoUsuario();
-                }
-                _mostrarMensaje('Usuario eliminado correctamente');
-              } else {
-                _mostrarMensaje('No se pudo eliminar el usuario', esError: true);
-              }
-            },
-            child: const Text('Eliminar'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Desactivar'),
           ),
         ],
       ),
     );
+
+    if (confirm != true) return;
+
+    setState(() => _guardando = true);
+    try {
+      final eliminado = await _usuarioService.eliminarUsuario(usuario.idUsuario);
+      if (!eliminado) {
+        _mostrarMensaje(
+          'No puedes desactivar al único usuario con permiso para gestionar usuarios.',
+          esError: true,
+        );
+      } else {
+        _mostrarMensaje('Usuario "@${usuario.nombreUsuario}" desactivado correctamente');
+        if (_usuarioService.usuarios.isNotEmpty) {
+          _cargarUsuarioEnFormulario(_usuarioService.usuarios.first);
+        } else {
+          _iniciarNuevoUsuario();
+        }
+      }
+    } catch (e) {
+      _mostrarMensaje('Error al desactivar usuario: $e', esError: true);
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
   }
 
   void _mostrarMensaje(String mensaje, {bool esError = false}) {
@@ -324,128 +282,40 @@ class _UsuariosViewState extends State<UsuariosView> {
         backgroundColor: esError ? AppColors.error : AppColors.primaryDark,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // 1. Pestaña de sub-opción superior estilo Eleventa
-        _buildPestanaSubOpcion(),
+    final esModoNuevo = _idSeleccionado == null;
 
-        // 2. Contenido principal con el layout de dos columnas
-        Expanded(
-          child: Container(
-            color: const Color(0xFFF8F9FA),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Título principal, descripción y métricas rápidas
-                  _buildEncabezadoModulo(),
-
-                  const SizedBox(height: 14),
-
-                  // Área de trabajo dividida: Lista a la izquierda | Formulario a la derecha
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Columna izquierda: Buscador, Filtros y Lista de Usuarios
-                        SizedBox(
-                          width: 340,
-                          child: _buildPanelIzquierdo(),
-                        ),
-
-                        const SizedBox(width: 20),
-
-                        // Columna derecha: Barra de herramientas superior y Formulario estructurado
-                        Expanded(
-                          child: _buildPanelDerecho(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Pestaña superior: "Administración de usuarios" con insignia de Administrador
-  Widget _buildPestanaSubOpcion() {
     return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFD9DDE2), width: 1),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-      child: Row(
+      color: const Color(0xFFF8F9FA),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F3F5),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: const Color(0xFFCBD5E1),
-                width: 1.2,
-              ),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
+          // Banner superior informativo del módulo
+          _buildBannerModulo(),
+          const SizedBox(height: 12),
+
+          // Área de trabajo: Lista izquierda | Formulario granular derecho
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.manage_accounts_rounded,
-                  size: 17,
-                  color: AppColors.usuariosIcon,
+                // Columna izquierda: Buscador y lista de usuarios
+                SizedBox(
+                  width: 320,
+                  child: _buildPanelIzquierdo(),
                 ),
-                SizedBox(width: 8),
-                Text(
-                  'Administración de Usuarios y Accesos',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDE9FE),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFDDD6FE)),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.shield_rounded,
-                  size: 14,
-                  color: AppColors.usuariosIcon,
-                ),
-                SizedBox(width: 6),
-                Text(
-                  'Solo Administrador',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.usuariosIcon,
-                  ),
+                const SizedBox(width: 16),
+
+                // Columna derecha: Formulario y permisos granulares
+                Expanded(
+                  child: _buildPanelDerecho(esModoNuevo),
                 ),
               ],
             ),
@@ -455,95 +325,72 @@ class _UsuariosViewState extends State<UsuariosView> {
     );
   }
 
-  /// Encabezado con título del módulo y métricas rápidas de cuentas
-  Widget _buildEncabezadoModulo() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'ADMINISTRACIÓN DE USUARIOS',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: Color(0xFF1E293B),
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Gestiona las cuentas de acceso, roles (Administrador / Empleado) y datos del personal del negocio.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF64748B),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Mini tarjetas de resumen
-        _buildResumenChip(
-          titulo: 'Total',
-          valor: '${_usuarioService.totalUsuarios}',
-          icono: Icons.people_alt_rounded,
-          color: const Color(0xFF475569),
-        ),
-        const SizedBox(width: 8),
-        _buildResumenChip(
-          titulo: 'Admins',
-          valor: '${_usuarioService.totalAdmins}',
-          icono: Icons.admin_panel_settings_rounded,
-          color: AppColors.usuariosIcon,
-        ),
-        const SizedBox(width: 8),
-        _buildResumenChip(
-          titulo: 'Empleados',
-          valor: '${_usuarioService.totalEmpleados}',
-          icono: Icons.badge_outlined,
-          color: AppColors.ventasIcon,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildResumenChip({
-    required String titulo,
-    required String valor,
-    required IconData icono,
-    required Color color,
-  }) {
+  Widget _buildBannerModulo() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 2,
-            offset: Offset(0, 1),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1)),
         ],
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icono, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(
-            '$titulo: ',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.usuariosIcon.withAlpha(25),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.manage_accounts_rounded,
+              size: 22,
+              color: AppColors.usuariosIcon,
+            ),
           ),
-          Text(
-            valor,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: color,
+          const SizedBox(width: 12),
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ADMINISTRACIÓN DE USUARIOS Y ACCESOS',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.1,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Text(
+                'Control granular de permisos por ventana y acción (100% Offline-First en PostgreSQL local)',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFFECFDF5),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFA7F3D0)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.people_outline_rounded, size: 14, color: AppColors.success),
+                const SizedBox(width: 6),
+                Text(
+                  '${_usuarioService.totalUsuarios} usuarios activos',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.success,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -551,7 +398,6 @@ class _UsuariosViewState extends State<UsuariosView> {
     );
   }
 
-  /// Panel Izquierdo: Buscador, Filtro de Roles y Lista de Usuarios
   Widget _buildPanelIzquierdo() {
     final usuarios = _usuariosFiltrados;
 
@@ -561,40 +407,23 @@ class _UsuariosViewState extends State<UsuariosView> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFD1D5DB)),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 4,
-            offset: Offset(0, 1),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1)),
         ],
       ),
       child: Column(
         children: [
-          // Campo de búsqueda con icono
+          // Buscador
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+            padding: const EdgeInsets.all(10),
             child: SizedBox(
               height: 38,
               child: TextField(
                 controller: _buscarController,
-                onChanged: (val) {
-                  setState(() {
-                    _filtroBusqueda = val;
-                  });
-                },
+                onChanged: (val) => setState(() => _filtroBusqueda = val),
                 decoration: InputDecoration(
-                  hintText: 'Buscar usuario o nombre...',
-                  hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-                  prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)),
-                  suffixIcon: _filtroBusqueda.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, size: 16),
-                          onPressed: () {
-                            _buscarController.clear();
-                            setState(() => _filtroBusqueda = '');
-                          },
-                        )
-                      : null,
+                  hintText: 'Buscar nombre de usuario...',
+                  hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
@@ -606,59 +435,20 @@ class _UsuariosViewState extends State<UsuariosView> {
                     borderRadius: BorderRadius.circular(6),
                     borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: const BorderSide(color: AppColors.usuariosIcon, width: 1.5),
-                  ),
                 ),
               ),
             ),
           ),
 
-          // Chips de filtro por Rol: [Todos] [Admins] [Usuarios]
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Row(
-              children: [
-                _buildFiltroRolChip('Todos'),
-                const SizedBox(width: 6),
-                _buildFiltroRolChip('Administrador', label: 'Admins'),
-                const SizedBox(width: 6),
-                _buildFiltroRolChip('Empleado', label: 'Empleados'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-
-          // Encabezado de la lista: Usuario | Rol
+          // Encabezado lista
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF1F5F9),
-              border: Border(
-                top: BorderSide(color: Color(0xFFE2E8F0)),
-                bottom: BorderSide(color: Color(0xFFCBD5E1)),
-              ),
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: const Color(0xFFF1F5F9),
             child: const Row(
               children: [
-                Expanded(
-                  child: Text(
-                    'Usuario / Nombre',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF475569),
-                    ),
-                  ),
-                ),
                 Text(
-                  'Rol',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF475569),
-                  ),
+                  'Usuarios Registrados',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
                 ),
               ],
             ),
@@ -666,511 +456,353 @@ class _UsuariosViewState extends State<UsuariosView> {
 
           // Lista de usuarios
           Expanded(
-            child: usuarios.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.person_search_rounded, size: 40, color: Color(0xFFCBD5E1)),
-                          SizedBox(height: 8),
-                          Text(
-                            'No se encontraron usuarios',
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: usuarios.length,
-                    itemBuilder: (context, index) {
-                      final usuario = usuarios[index];
-                      final bool seleccionado = _idSeleccionado == usuario.id;
+            child: _usuarioService.cargando
+                ? const Center(child: CircularProgressIndicator())
+                : usuarios.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No hay usuarios registrados',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: usuarios.length,
+                        itemBuilder: (context, index) {
+                          final u = usuarios[index];
+                          final bool seleccionado = _idSeleccionado == u.idUsuario;
 
-                      return InkWell(
-                        onTap: () => _cargarUsuarioEnFormulario(usuario),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: seleccionado
-                                ? const Color(0xFF4338CA) // Índigo oscuro seleccionado
-                                : (index.isEven ? Colors.white : const Color(0xFFF8FAFC)),
-                            border: const Border(
-                              bottom: BorderSide(color: Color(0xFFF1F5F9)),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              // Avatar con icono de rol
-                              Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  color: seleccionado
-                                      ? Colors.white.withAlpha(40)
-                                      : usuario.avatarColor.withAlpha(30),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: seleccionado
-                                        ? Colors.white70
-                                        : usuario.avatarColor,
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    usuario.esAdmin
-                                        ? Icons.admin_panel_settings_rounded
-                                        : Icons.person_rounded,
-                                    size: 18,
-                                    color: seleccionado
-                                        ? Colors.white
-                                        : usuario.avatarColor,
-                                  ),
+                          return InkWell(
+                            onTap: () => _cargarUsuarioEnFormulario(u),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: seleccionado
+                                    ? const Color(0xFF4338CA)
+                                    : (index.isEven ? Colors.white : const Color(0xFFF8FAFC)),
+                                border: const Border(
+                                  bottom: BorderSide(color: Color(0xFFF1F5F9)),
                                 ),
                               ),
-                              const SizedBox(width: 10),
-
-                              // Datos del usuario (Nombre de Usuario y Nombre Completo)
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Row(
+                              child: Row(
+                                children: [
+                                  // Avatar circular
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: seleccionado
+                                        ? Colors.white24
+                                        : u.avatarColor.withAlpha(35),
+                                    child: Text(
+                                      u.inicial,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: seleccionado ? Colors.white : u.avatarColor,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
-                                          '@${usuario.nombreUsuario}',
+                                          u.nombreUsuario,
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.bold,
-                                            color: seleccionado
-                                                ? Colors.white
-                                                : const Color(0xFF1E293B),
+                                            color: seleccionado ? Colors.white : AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        Text(
+                                          u.puedeGestionarUsuarios
+                                              ? 'Gestiona usuarios • Acceso amplio'
+                                              : 'Punto de venta y operaciones',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: seleccionado ? Colors.white70 : AppColors.textSecondary,
                                           ),
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      usuario.nombreCompleto,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: seleccionado
-                                            ? Colors.white70
-                                            : const Color(0xFF64748B),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (u.puedeGestionarUsuarios)
+                                    Icon(
+                                      Icons.shield_rounded,
+                                      size: 16,
+                                      color: seleccionado ? Colors.white : AppColors.usuariosIcon,
                                     ),
-                                    if (usuario.telefono.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.phone_rounded,
-                                            size: 10,
-                                            color: seleccionado
-                                                ? Colors.white60
-                                                : const Color(0xFF94A3B8),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            usuario.telefono,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: seleccionado
-                                                  ? Colors.white60
-                                                  : const Color(0xFF94A3B8),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ],
-                                ),
+                                ],
                               ),
-
-                              // Badge de Rol
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: seleccionado
-                                      ? Colors.white.withAlpha(50)
-                                      : (usuario.esAdmin
-                                          ? const Color(0xFFEDE9FE)
-                                          : const Color(0xFFEFF6FF)),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: seleccionado
-                                        ? Colors.white60
-                                        : (usuario.esAdmin
-                                            ? const Color(0xFFC4B5FD)
-                                            : const Color(0xFFBFDBFE)),
-                                  ),
-                                ),
-                                child: Text(
-                                  usuario.rol,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: seleccionado
-                                        ? Colors.white
-                                        : (usuario.esAdmin
-                                            ? AppColors.usuariosIcon
-                                            : const Color(0xFF1D4ED8)),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-
-          // Barra inferior informativa
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8FAFC),
-              border: Border(
-                top: BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF94A3B8)),
-                const SizedBox(width: 6),
-                Text(
-                  '${usuarios.length} de ${_usuarioService.totalUsuarios} usuarios mostrados',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                ),
-              ],
-            ),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFiltroRolChip(String rol, {String? label}) {
-    final bool activo = _filtroRol == rol;
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _filtroRol = rol;
-          });
-        },
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          decoration: BoxDecoration(
-            color: activo ? AppColors.usuariosIcon : const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: activo ? AppColors.usuariosIcon : const Color(0xFFCBD5E1),
-            ),
-          ),
-          child: Center(
-            child: Text(
-              label ?? rol,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: activo ? FontWeight.bold : FontWeight.w600,
-                color: activo ? Colors.white : const Color(0xFF475569),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Panel Derecho: Barra de botones de acción y Formulario estructurado
-  Widget _buildPanelDerecho() {
-    final bool esModoNuevo = _idSeleccionado == null;
+  Widget _buildPanelDerecho(bool esModoNuevo) {
     final usuario = _usuarioActual;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Barra de botones superior: [ Nuevo Usuario ] [ Eliminar ] [ Guardar ] [ Limpiar ]
-        Row(
-          children: [
-            // Botón: Nuevo Usuario
-            _buildBotonToolbar(
-              label: 'Nuevo Usuario',
-              icon: Icons.person_add_alt_1_rounded,
-              iconColor: const Color(0xFF2563EB),
-              onTap: _iniciarNuevoUsuario,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFD1D5DB)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1)),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Barra de acciones del formulario
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            const SizedBox(width: 8),
-
-            // Botón: Eliminar
-            _buildBotonToolbar(
-              label: 'Eliminar',
-              icon: Icons.delete_outline_rounded,
-              iconColor: esModoNuevo ? const Color(0xFF94A3B8) : AppColors.error,
-              onTap: esModoNuevo ? null : _eliminarUsuario,
-            ),
-            const SizedBox(width: 8),
-
-            // Botón: Guardar
-            _buildBotonToolbar(
-              label: 'Guardar',
-              icon: Icons.check_rounded,
-              iconColor: AppColors.success,
-              onTap: _guardarUsuario,
-            ),
-            const SizedBox(width: 8),
-
-            // Botón: Limpiar / Recargar
-            _buildBotonToolbar(
-              label: esModoNuevo ? 'Limpiar' : 'Restablecer',
-              icon: Icons.refresh_rounded,
-              iconColor: const Color(0xFF64748B),
-              onTap: () {
-                if (esModoNuevo) {
-                  _iniciarNuevoUsuario();
-                } else if (usuario != null) {
-                  _cargarUsuarioEnFormulario(usuario);
-                  _mostrarMensaje('Formulario restablecido a los datos guardados');
-                }
-              },
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 16),
-
-        // Tarjeta contenedora del formulario estructurado
-        Expanded(
-          child: Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFD1D5DB)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 4,
-                  offset: Offset(0, 1),
+            child: Row(
+              children: [
+                _buildBotonToolbar(
+                  label: 'Nuevo Usuario',
+                  icon: Icons.person_add_alt_1_rounded,
+                  color: const Color(0xFF2563EB),
+                  onTap: _iniciarNuevoUsuario,
+                ),
+                const SizedBox(width: 8),
+                _buildBotonToolbar(
+                  label: 'Desactivar',
+                  icon: Icons.delete_outline_rounded,
+                  color: esModoNuevo ? Colors.grey : AppColors.error,
+                  onTap: esModoNuevo ? null : _eliminarUsuario,
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: _guardando ? null : _guardarUsuario,
+                  icon: _guardando
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: Text(
+                    esModoNuevo ? 'Crear Usuario' : 'Guardar Cambios',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  ),
                 ),
               ],
             ),
+          ),
+
+          // Contenido con scroll: Credenciales + Permisos Granulares
+          Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Título dinámico de la sección
+                  // Título dinámico
+                  Text(
+                    esModoNuevo
+                        ? 'Crear Cuenta de Usuario'
+                        : 'Editando cuenta: @${usuario?.nombreUsuario ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // SECCIÓN 1: CREDENCIALES
+                  _buildSeccionHeader('1. CREDENCIALES DE ACCESO', Icons.lock_outline_rounded),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _nombreCompletoController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre completo *',
+                      hintText: 'Ej. Juan Pérez',
+                      prefixIcon: Icon(Icons.badge_outlined, size: 18),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: esModoNuevo
-                              ? const Color(0xFFEFF6FF)
-                              : const Color(0xFFEDE9FE),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          esModoNuevo
-                              ? Icons.person_add_alt_1_rounded
-                              : Icons.edit_note_rounded,
-                          color: esModoNuevo
-                              ? const Color(0xFF2563EB)
-                              : AppColors.usuariosIcon,
-                          size: 24,
+                      // Nombre de usuario
+                      Expanded(
+                        child: TextField(
+                          controller: _usuarioController,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre de usuario *',
+                            hintText: 'Ej. cajero1 (sin espacios)',
+                            prefixIcon: Icon(Icons.alternate_email_rounded, size: 18),
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            esModoNuevo
-                                ? 'Agregar Nuevo Usuario'
-                                : 'Modificando Usuario: @${usuario?.nombreUsuario ?? ''}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: esModoNuevo
-                                  ? const Color(0xFF1E293B)
-                                  : AppColors.usuariosIcon,
+
+                      // Contraseña
+                      Expanded(
+                        child: TextField(
+                          controller: _contrasenaController,
+                          obscureText: _ocultarContrasena,
+                          decoration: InputDecoration(
+                            labelText: esModoNuevo
+                                ? 'Contraseña *'
+                                : 'Nueva Contraseña (opcional)',
+                            prefixIcon: const Icon(Icons.lock_rounded, size: 18),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _ocultarContrasena ? Icons.visibility_off : Icons.visibility,
+                                size: 18,
+                              ),
+                              onPressed: () => setState(() => _ocultarContrasena = !_ocultarContrasena),
                             ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
                           ),
-                          Text(
-                            esModoNuevo
-                                ? 'Completa los siguientes apartados para crear la cuenta de acceso.'
-                                : 'ID de cuenta #${usuario?.id} • Registrado el ${_formatearFecha(usuario?.fechaRegistro)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Confirmar contraseña
+                      Expanded(
+                        child: TextField(
+                          controller: _confirmarContrasenaController,
+                          obscureText: _ocultarConfirmar,
+                          decoration: InputDecoration(
+                            labelText: 'Confirmar Contraseña',
+                            prefixIcon: const Icon(Icons.lock_reset_rounded, size: 18),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _ocultarConfirmar ? Icons.visibility_off : Icons.visibility,
+                                size: 18,
+                              ),
+                              onPressed: () => setState(() => _ocultarConfirmar = !_ocultarConfirmar),
                             ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
 
                   const SizedBox(height: 24),
                   const Divider(color: Color(0xFFE2E8F0)),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
-                  // ==========================================
-                  // SECCIÓN 1: USUARIO
-                  // ==========================================
-                  _buildTituloSeccion(
-                    numero: '1',
-                    titulo: 'Usuario',
-                    subtitulo: 'Credenciales para el inicio de sesión en el punto de venta',
-                    icono: Icons.lock_outline_rounded,
-                    color: const Color(0xFF2563EB),
+                  // SECCIÓN 2: SELECTOR GRANULAR DE PERMISOS
+                  _buildSeccionHeader(
+                    '2. ASIGNACIÓN GRANULAR DE PERMISOS (JSONB)',
+                    Icons.security_rounded,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Selecciona con precisión a qué ventanas y qué nivel de acción (solo lectura vs edición) tendrá este usuario.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 16),
 
-                  // - Nombre de Usuario
-                  _buildCampoFila(
-                    label: 'Nombre de Usuario',
-                    controller: _usuarioController,
-                    hint: 'Ej. cajero1, admin_tienda',
-                    icon: Icons.alternate_email_rounded,
-                    ayuda: 'Nombre de cuenta único para ingresar al sistema.',
-                  ),
-                  const SizedBox(height: 16),
-
-                  // - Contraseña
-                  _buildCampoContrasenaFila(
-                    label: 'Contraseña',
-                    controller: _contrasenaController,
-                    hint: esModoNuevo
-                        ? 'Escribe una contraseña segura'
-                        : 'Dejar en blanco para mantener la actual',
-                    ocultar: _ocultarContrasena,
-                    onToggleOcultar: () {
-                      setState(() => _ocultarContrasena = !_ocultarContrasena);
-                    },
-                    icon: Icons.lock_rounded,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // - Confirmar contraseña
-                  _buildCampoContrasenaFila(
-                    label: 'Confirmar contraseña',
-                    controller: _confirmarContrasenaController,
-                    hint: 'Vuelve a escribir la contraseña',
-                    ocultar: _ocultarConfirmar,
-                    onToggleOcultar: () {
-                      setState(() => _ocultarConfirmar = !_ocultarConfirmar);
-                    },
-                    icon: Icons.lock_reset_rounded,
-                  ),
-
-                  // Indicador de coincidencia de contraseñas
-                  _buildIndicadorCoincidenciaContrasenas(),
-
-                  const SizedBox(height: 28),
-                  const Divider(color: Color(0xFFE2E8F0)),
-                  const SizedBox(height: 20),
-
-                  // ==========================================
-                  // SECCIÓN 2: DATOS GENERALES
-                  // ==========================================
-                  _buildTituloSeccion(
-                    numero: '2',
-                    titulo: 'Datos generales',
-                    subtitulo: 'Información personal y de contacto del colaborador',
-                    icono: Icons.badge_outlined,
-                    color: const Color(0xFF0D9488),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // - Nombres
-                  _buildCampoFila(
-                    label: 'Nombres',
-                    controller: _nombresController,
-                    hint: 'Ej. Carlos Alberto',
-                    icon: Icons.badge_outlined,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // - Apellidos
-                  _buildCampoFila(
-                    label: 'Apellidos',
-                    controller: _apellidosController,
-                    hint: 'Ej. Mendoza Pérez',
-                    icon: Icons.person_outline_rounded,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // - Teléfono
-                  _buildCampoFila(
-                    label: 'Teléfono',
-                    controller: _telefonoController,
-                    hint: 'Ej. 55 1234 5678',
-                    icon: Icons.phone_outlined,
-                    teclado: TextInputType.phone,
-                  ),
-
-                  const SizedBox(height: 28),
-                  const Divider(color: Color(0xFFE2E8F0)),
-                  const SizedBox(height: 20),
-
-                  // ==========================================
-                  // SECCIÓN 3: ROL
-                  // ==========================================
-                  _buildTituloSeccion(
-                    numero: '3',
-                    titulo: 'Rol',
-                    subtitulo: 'Nivel de acceso y permisos dentro de Abarrotes 3M',
-                    icono: Icons.admin_panel_settings_outlined,
-                    color: AppColors.usuariosIcon,
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildSelectorRol(),
-
-                  const SizedBox(height: 36),
-
-                  // Botón grande de guardar al pie del formulario
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: esModoNuevo ? _iniciarNuevoUsuario : () {
-                          if (usuario != null) _cargarUsuarioEnFormulario(usuario);
-                        },
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        label: const Text('Cancelar'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF64748B),
-                          side: const BorderSide(color: Color(0xFFCBD5E1)),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                  // Módulo: Punto de Venta
+                  _buildModuloCard(
+                    titulo: 'Punto de Venta / Caja',
+                    icono: Icons.point_of_sale_rounded,
+                    color: AppColors.ventasIcon,
+                    items: [
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.puntoVentaKey,
+                        titulo: 'Acceso a Punto de Venta (punto_venta)',
+                        descripcion: 'Permite abrir caja, escanear productos y cobrar tickets de venta.',
                       ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        onPressed: _guardarUsuario,
-                        icon: const Icon(Icons.save_rounded, size: 20),
-                        label: Text(
-                          esModoNuevo ? 'Guardar Nuevo Usuario' : 'Guardar Cambios',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          elevation: 2,
-                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Módulo: Inventario y Productos
+                  _buildModuloCard(
+                    titulo: 'Inventario y Catálogo de Productos',
+                    icono: Icons.inventory_2_outlined,
+                    color: AppColors.productosIcon,
+                    items: [
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.inventarioVerKey,
+                        titulo: 'Ver Inventario (inventario_ver)',
+                        descripcion: 'Solo lectura: consultar catálogo de productos, existencias y costos.',
+                      ),
+                      const Divider(height: 1),
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.inventarioEditarKey,
+                        titulo: 'Editar Inventario (inventario_editar)',
+                        descripcion: 'Crear productos, modificar precios/datos y registrar entradas o salidas de stock.',
+                        dependeDe: 'Al activarse, activa automáticamente "Ver Inventario".',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Módulo: Clientes
+                  _buildModuloCard(
+                    titulo: 'Directorio de Clientes',
+                    icono: Icons.people_alt_rounded,
+                    color: AppColors.clientesIcon,
+                    items: [
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.clientesVerKey,
+                        titulo: 'Ver Clientes (clientes_ver)',
+                        descripcion: 'Solo lectura: consultar listado y datos de contacto de clientes.',
+                      ),
+                      const Divider(height: 1),
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.clientesEditarKey,
+                        titulo: 'Editar Clientes (clientes_editar)',
+                        descripcion: 'Crear nuevos clientes, actualizar datos y gestionar su crédito.',
+                        dependeDe: 'Al activarse, activa automáticamente "Ver Clientes".',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Módulo: Reportes y Cortes
+                  _buildModuloCard(
+                    titulo: 'Reportes y Cortes de Caja',
+                    icono: Icons.bar_chart_rounded,
+                    color: AppColors.reportesIcon,
+                    items: [
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.reportesVerKey,
+                        titulo: 'Ver Reportes y Cortes (reportes_ver)',
+                        descripcion: 'Acceso a cortes de turno/día, historial de ventas y reportes financieros.',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Módulo: Administración del Sistema
+                  _buildModuloCard(
+                    titulo: 'Administración del Sistema',
+                    icono: Icons.manage_accounts_rounded,
+                    color: AppColors.usuariosIcon,
+                    items: [
+                      _buildPermisoTile(
+                        clave: PermisosVentanas.usuariosGestionarKey,
+                        titulo: 'Gestionar Usuarios y Permisos (usuarios_gestionar)',
+                        descripcion: 'Permite crear nuevos usuarios, editar contraseñas y asignar permisos.',
                       ),
                     ],
                   ),
@@ -1178,448 +810,141 @@ class _UsuariosViewState extends State<UsuariosView> {
               ),
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  /// Encabezado para cada sección del formulario
-  Widget _buildTituloSeccion({
-    required String numero,
-    required String titulo,
-    required String subtitulo,
-    required IconData icono,
-    required Color color,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(
-              numero,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icono, size: 18, color: color),
-                  const SizedBox(width: 6),
-                  Text(
-                    titulo,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E293B),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitulo,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Fila de campo de texto estándar con etiqueta alineada
-  Widget _buildCampoFila({
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    required IconData icon,
-    String? ayuda,
-    TextInputType? teclado,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 170,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF334155),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                height: 42,
-                child: TextField(
-                  controller: controller,
-                  keyboardType: teclado,
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-                    prefixIcon: Icon(icon, size: 18, color: const Color(0xFF64748B)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: AppColors.usuariosIcon, width: 1.8),
-                    ),
-                  ),
-                ),
-              ),
-              if (ayuda != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  ayuda,
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Fila de campo de contraseña con botón para alternar visibilidad
-  Widget _buildCampoContrasenaFila({
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    required bool ocultar,
-    required VoidCallback onToggleOcultar,
-    required IconData icon,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 170,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF334155),
-            ),
-          ),
-        ),
-        Expanded(
-          child: SizedBox(
-            height: 42,
-            child: TextField(
-              controller: controller,
-              obscureText: ocultar,
-              style: const TextStyle(fontSize: 14),
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: hint,
-                hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-                prefixIcon: Icon(icon, size: 18, color: const Color(0xFF64748B)),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    ocultar ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    size: 18,
-                    color: const Color(0xFF64748B),
-                  ),
-                  onPressed: onToggleOcultar,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppColors.usuariosIcon, width: 1.8),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Indicador visual cuando las contraseñas coinciden o no
-  Widget _buildIndicadorCoincidenciaContrasenas() {
-    final c1 = _contrasenaController.text;
-    final c2 = _confirmarContrasenaController.text;
-
-    if (c1.isEmpty && c2.isEmpty) return const SizedBox.shrink();
-
-    final bool coinciden = c1 == c2 && c1.isNotEmpty;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, left: 170),
-      child: Row(
-        children: [
-          Icon(
-            coinciden ? Icons.check_circle_rounded : Icons.cancel_rounded,
-            size: 15,
-            color: coinciden ? AppColors.success : AppColors.error,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            coinciden
-                ? 'Las contraseñas coinciden correctamente'
-                : 'Las contraseñas no coinciden',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: coinciden ? AppColors.success : AppColors.error,
-            ),
-          ),
         ],
       ),
     );
   }
 
-  /// Selector visual de Rol (Usuario o Administrador)
-  Widget _buildSelectorRol() {
+  Widget _buildSeccionHeader(String titulo, IconData icono) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(
-          width: 170,
-          child: Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'Rol',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF334155),
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              // Tarjeta Rol: Empleado
-              Expanded(
-                child: _buildTarjetaOpcionRol(
-                  rol: 'Empleado',
-                  titulo: 'Empleado',
-                  descripcion:
-                      'Cajero u operador del mostrador. Puede realizar ventas, clientes y cobros.',
-                  icono: Icons.badge_outlined,
-                  color: AppColors.ventasIcon,
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Tarjeta Rol: Administrador
-              Expanded(
-                child: _buildTarjetaOpcionRol(
-                  rol: 'Administrador',
-                  titulo: 'Administrador',
-                  descripcion:
-                      'Control total del sistema. Acceso a usuarios, cortes, reportes y configuración.',
-                  icono: Icons.admin_panel_settings_outlined,
-                  color: AppColors.usuariosIcon,
-                ),
-              ),
-            ],
+        Icon(icono, size: 18, color: AppColors.primaryDark),
+        const SizedBox(width: 8),
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.8,
+            color: AppColors.primaryDark,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTarjetaOpcionRol({
-    required String rol,
+  Widget _buildModuloCard({
     required String titulo,
-    required String descripcion,
     required IconData icono,
     required Color color,
+    required List<Widget> items,
   }) {
-    final bool seleccionado = _rolSeleccionado == rol;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _rolSeleccionado = rol;
-          });
-        },
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: seleccionado ? color.withAlpha(12) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: seleccionado ? color : const Color(0xFFCBD5E1),
-              width: seleccionado ? 2.0 : 1.0,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: color.withAlpha(20),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
             ),
-            boxShadow: seleccionado
-                ? [
-                    BoxShadow(
-                      color: color.withAlpha(30),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
+            child: Row(
+              children: [
+                Icon(icono, size: 16, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  titulo,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: seleccionado ? color : const Color(0xFFE2E8F0),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(
-                  icono,
-                  size: 22,
-                  color: seleccionado ? Colors.white : const Color(0xFF64748B),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          titulo,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: seleccionado ? color : const Color(0xFF1E293B),
-                          ),
-                        ),
-                        const Spacer(),
-                        if (seleccionado)
-                          Icon(Icons.check_circle_rounded, size: 18, color: color)
-                        else
-                          const Icon(Icons.radio_button_unchecked_rounded,
-                              size: 18, color: Color(0xFF94A3B8)),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      descripcion,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF64748B),
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+          ...items,
+        ],
       ),
     );
   }
 
-  /// Botón estándar para la barra de herramientas superior
+  Widget _buildPermisoTile({
+    required String clave,
+    required String titulo,
+    required String descripcion,
+    String? dependeDe,
+  }) {
+    final valor = _permisosEnEdicion.tieneAcceso(clave);
+
+    return SwitchListTile(
+      value: valor,
+      activeColor: AppColors.primary,
+      onChanged: (nuevoValor) => _actualizarPermiso(clave, nuevoValor),
+      title: Text(
+        titulo,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: valor ? FontWeight.bold : FontWeight.w500,
+          color: valor ? AppColors.textPrimary : const Color(0xFF64748B),
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            descripcion,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+          ),
+          if (dependeDe != null)
+            Text(
+              dependeDe,
+              style: const TextStyle(fontSize: 10, color: Color(0xFFD97706), fontStyle: FontStyle.italic),
+            ),
+        ],
+      ),
+      dense: true,
+    );
+  }
+
   Widget _buildBotonToolbar({
     required String label,
     required IconData icon,
-    required Color iconColor,
-    required VoidCallback? onTap,
+    required Color color,
+    VoidCallback? onTap,
   }) {
-    final bool habilitado = onTap != null;
-
-    return Material(
-      color: Colors.white,
+    return InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: habilitado ? const Color(0xFFCBD5E1) : const Color(0xFFE2E8F0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFD1D5DB)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: onTap == null ? Colors.grey : AppColors.textPrimary,
+              ),
             ),
-            boxShadow: habilitado
-                ? const [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 2,
-                      offset: Offset(0, 1),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 17,
-                color: habilitado ? iconColor : const Color(0xFFCBD5E1),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: habilitado ? const Color(0xFF334155) : const Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );
-  }
-
-  String _formatearFecha(DateTime? fecha) {
-    if (fecha == null) return 'Hoy';
-    return '${fecha.day.toString().padLeft(2, '0')}/${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
   }
 }

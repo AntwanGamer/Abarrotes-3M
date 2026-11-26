@@ -1,5 +1,5 @@
 name: abarrotes3m
-description: "A new Flutter project."
+description: "Sistema Punto de Venta Offline-First – Abarrotes 3M"
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -10,6 +10,23 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # --- Base de datos local (PostgreSQL v3 API) ---
+  postgres: ^3.4.0
+
+  # --- Supabase (nube) ---
+  supabase_flutter: ^2.8.4
+
+  # --- Variables de entorno ---
+  flutter_dotenv: ^5.2.1
+
+  # --- Persistencia de sesión y timestamps ---
+  shared_preferences: ^2.3.4
+
+  # --- Validación de contraseñas encriptadas ---
+  bcrypt: ^1.1.3
+  file_picker: ^13.4.1
+  csv: ^8.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -17,3 +34,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Incluir .env como asset
+  assets:
+    - .env

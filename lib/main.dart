@@ -1,8 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 import 'app_theme.dart';
 import 'screens/login_screen.dart';
+import 'services/database_service.dart';
+import 'services/sync_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. Cargar variables de entorno desde .env
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (e) {
+    debugPrint('[Main] ⚠️ No se pudo cargar .env: $e');
+  }
+
+  // 2. Inicializar conexión a PostgreSQL local + Supabase
+  try {
+    await DatabaseService.instance.init();
+    // 3. Iniciar motor de sincronización en segundo plano
+    SyncService.instance.init(DatabaseService.instance);
+  } catch (e) {
+    debugPrint('[Main] ⚠️ Error inicializando base de datos en arranque: $e');
+  }
+
   runApp(const MainApp());
 }
 

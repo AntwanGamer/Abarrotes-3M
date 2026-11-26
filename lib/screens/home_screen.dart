@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
+import '../models/permisos_ventanas.dart';
+import '../models/corte_caja.dart';
+import '../models/usuario_db.dart';
+import '../repositories/auth_repository.dart';
+import '../repositories/cortes_caja_repository.dart';
 import 'login_screen.dart';
 import 'productos_view.dart';
 import 'ventas_view.dart';
@@ -13,9 +18,10 @@ import 'usuarios_view.dart';
 /// Pantalla principal después del login (Punto de Venta).
 /// Barra de botones superior estilo Eleventa: Ventas, Productos, Inventario.
 class HomeScreen extends StatefulWidget {
-  final String userType;
+  final UsuarioDB? usuario;
+  final String? userType;
 
-  const HomeScreen({super.key, required this.userType});
+  const HomeScreen({super.key, this.usuario, this.userType});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -30,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
+      _verificarTurnoInicial();
     });
   }
 
@@ -39,7 +46,55 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _cerrarSesion(BuildContext context) {
+  UsuarioDB get _usuarioActivo {
+    if (widget.usuario != null) return widget.usuario!;
+    final u = AuthRepository.instance.usuarioActual;
+    if (u != null) return u;
+    return UsuarioDB(
+      idUsuario: 1,
+      nombreCompleto: widget.userType ?? 'Usuario',
+      nombreUsuario: widget.userType ?? 'Usuario',
+      hashPassword: '',
+      permisosVentanas: const PermisosVentanas({}),
+      fechaRegistro: DateTime.now(),
+      fechaActualizacion: DateTime.now(),
+      uuidSync: '',
+    );
+  }
+
+  Future<void> _verificarTurnoInicial() async {
+    if (CortesCajaRepository.instance.corteActivo != null) return;
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _DialogoControlTurno(
+        idUsuario: _usuarioActivo.idUsuario,
+        nombreUsuario: _usuarioActivo.nombreCompleto,
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _abrirMovimientoCaja() async {
+    if (CortesCajaRepository.instance.corteActivo == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => _DialogoMovimientoCaja(idUsuario: _usuarioActivo.idUsuario),
+    );
+    if (ok == true && mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Movimiento de caja registrado correctamente.')),
+      );
+    }
+  }
+
+  Future<void> _cerrarSesion(BuildContext context) async {
+    CortesCajaRepository.instance.limpiarCorte();
+    await AuthRepository.instance.logout();
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -135,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
             } else if (event.logicalKey == LogicalKeyboardKey.f6) {
               setState(() => _moduloSeleccionado = 'Reportes');
             } else if (event.logicalKey == LogicalKeyboardKey.f7 &&
-                widget.userType == 'Administrador') {
+                _usuarioActivo.puedeGestionarUsuarios) {
               setState(() => _moduloSeleccionado = 'Usuarios');
             }
           }
@@ -166,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   : (_moduloSeleccionado == 'Reportes'
                                       ? const ReportesView()
                                       : (_moduloSeleccionado == 'Usuarios' &&
-                                              widget.userType == 'Administrador'
+                                              _usuarioActivo.puedeGestionarUsuarios
                                           ? const UsuariosView()
                                           : const VentasView())))))),
             ),
@@ -250,7 +305,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  widget.userType == 'Administrador'
+                  _usuarioActivo.puedeGestionarUsuarios
                       ? Icons.admin_panel_settings_rounded
                       : Icons.person_rounded,
                   size: 18,
@@ -258,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  widget.userType,
+                  _usuarioActivo.nombreUsuario,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -345,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
 
                   // Botón 7: Usuarios (Exclusivo Administrador)
-                  if (widget.userType == 'Administrador') ...[
+                  if (_usuarioActivo.puedeGestionarUsuarios) ...[
                     const SizedBox(width: 8),
                     _buildBotonModulo(
                       titulo: 'Usuarios',
@@ -392,6 +447,21 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
+                  if (CortesCajaRepository.instance.corteActivo != null) ...[
+                    const SizedBox(width: 10),
+                    _buildBadgeTurno(CortesCajaRepository.instance.corteActivo!),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _abrirMovimientoCaja,
+                      icon: const Icon(Icons.swap_vert_rounded, size: 16),
+                      label: const Text('Mov. Caja', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -561,6 +631,340 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Widget _buildBadgeTurno(CorteCaja corte) {
+    final hora = '${corte.fechaApertura.hour.toString().padLeft(2, '0')}:${corte.fechaApertura.minute.toString().padLeft(2, '0')}';
+    final cajero = corte.nombreUsuario ?? _usuarioActivo.nombreCompleto;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.point_of_sale, size: 15, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            'Corte #${corte.idCorte} • $cajero • $hora • Fondo: \$${corte.fondoInicial.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
+class _DialogoControlTurno extends StatefulWidget {
+  final int idUsuario;
+  final String nombreUsuario;
 
+  const _DialogoControlTurno({
+    required this.idUsuario,
+    required this.nombreUsuario,
+  });
+
+  @override
+  State<_DialogoControlTurno> createState() => _DialogoControlTurnoState();
+}
+
+class _DialogoControlTurnoState extends State<_DialogoControlTurno> {
+  bool _modoNuevoTurno = false;
+  bool _cargando = false;
+  String? _mensajeAviso;
+  final _fondoController = TextEditingController(text: '500.00');
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _fondoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _continuarTurno() async {
+    setState(() {
+      _cargando = true;
+      _mensajeAviso = null;
+    });
+    try {
+      final corte = await CortesCajaRepository.instance.continuarCorteAbierto();
+      if (corte != null) {
+        if (mounted) Navigator.of(context).pop();
+      } else {
+        setState(() {
+          _cargando = false;
+          _modoNuevoTurno = true;
+          _mensajeAviso = 'No hay ningún corte abierto previo. Por favor inicia un turno nuevo.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _cargando = false;
+        _mensajeAviso = 'Error al consultar corte abierto: $e';
+      });
+    }
+  }
+
+  Future<void> _iniciarNuevoTurno() async {
+    if (!_formKey.currentState!.validate()) return;
+    final fondo = double.tryParse(_fondoController.text.trim()) ?? 0.0;
+    setState(() {
+      _cargando = true;
+      _mensajeAviso = null;
+    });
+    try {
+      await CortesCajaRepository.instance.iniciarCorteNuevo(
+        idUsuario: widget.idUsuario,
+        fondoInicial: fondo,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      setState(() {
+        _cargando = false;
+        _mensajeAviso = 'Error al iniciar turno: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.lock_clock_rounded, color: AppColors.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _modoNuevoTurno ? 'Iniciar Turno Nuevo' : 'Control de Turno de Caja',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _modoNuevoTurno
+                    ? 'Ingresa el efectivo inicial en caja para comenzar el turno de ${widget.nombreUsuario}:'
+                    : '¿Deseas iniciar un turno nuevo o continuar con el turno anterior?',
+                style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+              ),
+              if (_mensajeAviso != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange.shade800, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _mensajeAviso!,
+                          style: TextStyle(fontSize: 13, color: Colors.orange.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_modoNuevoTurno) ...[
+                const SizedBox(height: 16),
+                Form(
+                  key: _formKey,
+                  child: TextFormField(
+                    controller: _fondoController,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Efectivo inicial en caja (fondo_inicial)',
+                      prefixText: '\$ ',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (val) {
+                      final n = double.tryParse(val?.trim() ?? '');
+                      if (n == null || n < 0) {
+                        return 'Ingresa un monto válido (>= 0)';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: _modoNuevoTurno
+            ? [
+                TextButton(
+                  onPressed: _cargando
+                      ? null
+                      : () => setState(() {
+                            _modoNuevoTurno = false;
+                            _mensajeAviso = null;
+                          }),
+                  child: const Text('Volver'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _cargando ? null : _iniciarNuevoTurno,
+                  icon: _cargando
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Confirmar e Iniciar Turno'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ]
+            : [
+                OutlinedButton.icon(
+                  onPressed: _cargando ? null : _continuarTurno,
+                  icon: _cargando
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.history_rounded),
+                  label: const Text('Continuar turno anterior'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _cargando ? null : () => setState(() {
+                            _modoNuevoTurno = true;
+                            _mensajeAviso = null;
+                          }),
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  label: const Text('Turno nuevo'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+      ),
+    );
+  }
+}
+
+class _DialogoMovimientoCaja extends StatefulWidget {
+  final int idUsuario;
+  const _DialogoMovimientoCaja({required this.idUsuario});
+
+  @override
+  State<_DialogoMovimientoCaja> createState() => _DialogoMovimientoCajaState();
+}
+
+class _DialogoMovimientoCajaState extends State<_DialogoMovimientoCaja> {
+  String _tipo = 'Entrada';
+  final _montoCtrl = TextEditingController();
+  final _conceptoCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _guardando = false;
+
+  @override
+  void dispose() {
+    _montoCtrl.dispose();
+    _conceptoCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _guardar() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _guardando = true);
+    try {
+      await CortesCajaRepository.instance.registrarMovimientoCaja(
+        idUsuario: widget.idUsuario,
+        tipoMovimiento: _tipo,
+        monto: double.parse(_montoCtrl.text.trim()),
+        concepto: _conceptoCtrl.text,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _guardando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.swap_vert_rounded, color: AppColors.primary),
+          SizedBox(width: 8),
+          Text('Movimiento de Caja'),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'Entrada', label: Text('Entrada (Cambio)'), icon: Icon(Icons.arrow_downward)),
+                  ButtonSegment(value: 'Salida', label: Text('Salida (Retiro/Pago)'), icon: Icon(Icons.arrow_upward)),
+                ],
+                selected: {_tipo},
+                onSelectionChanged: (s) => setState(() => _tipo = s.first),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _montoCtrl,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Monto *',
+                  prefixText: '\$ ',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  final n = double.tryParse(v?.trim() ?? '');
+                  if (n == null || n <= 0) return 'Ingresa un monto mayor a 0';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _conceptoCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Concepto *',
+                  hintText: 'Ej. Cambio inicial / Pago proveedor Bimbo',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresa el concepto' : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _guardando ? null : () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        ElevatedButton(
+          onPressed: _guardando ? null : _guardar,
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+          child: _guardando ? const CircularProgressIndicator(strokeWidth: 2) : const Text('Guardar'),
+        ),
+      ],
+    );
+  }
+}

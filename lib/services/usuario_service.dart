@@ -1,155 +1,131 @@
 import 'package:flutter/material.dart';
-import '../models/usuario.dart';
+import '../models/usuario_db.dart';
+import '../models/permisos_ventanas.dart';
+import '../repositories/usuarios_repository.dart';
 
 /// Servicio centralizado y reactivo de Usuarios.
-/// Gestiona la creación, edición, eliminación y autenticación de usuarios.
+/// Conectado directamente a PostgreSQL local a través de [UsuariosRepository].
 class UsuarioService extends ChangeNotifier {
   static final UsuarioService _instance = UsuarioService._internal();
   factory UsuarioService() => _instance;
 
+  final UsuariosRepository _repo = UsuariosRepository.instance;
+
   UsuarioService._internal() {
-    _cargarUsuariosIniciales();
+    cargarUsuarios();
   }
 
-  final List<Usuario> _usuarios = [];
+  final List<UsuarioDB> _usuarios = [];
+  bool _cargando = false;
 
-  List<Usuario> get usuarios => List.unmodifiable(_usuarios);
-
+  List<UsuarioDB> get usuarios => List.unmodifiable(_usuarios);
+  bool get cargando => _cargando;
   int get totalUsuarios => _usuarios.length;
-  int get totalAdmins => _usuarios.where((u) => u.esAdmin).length;
-  int get totalEmpleados => _usuarios.where((u) => !u.esAdmin).length;
-  int get totalCajeros => totalEmpleados;
 
-  void _cargarUsuariosIniciales() {
-    _usuarios.addAll([
-      Usuario(
-        id: 1,
-        nombreUsuario: 'admin',
-        contrasena: 'admin123',
-        nombres: 'Carlos',
-        apellidos: 'Mendoza Pérez',
-        telefono: '55 1234 5678',
-        rol: 'Administrador',
-      ),
-      Usuario(
-        id: 2,
-        nombreUsuario: 'cajero1',
-        contrasena: 'caja123',
-        nombres: 'María',
-        apellidos: 'García Ruiz',
-        telefono: '55 9876 5432',
-        rol: 'Empleado',
-      ),
-      Usuario(
-        id: 3,
-        nombreUsuario: 'cajero2',
-        contrasena: 'caja456',
-        nombres: 'Roberto',
-        apellidos: 'Silva Hernández',
-        telefono: '55 4433 2211',
-        rol: 'Empleado',
-      ),
-    ]);
-  }
-
-  /// Verifica si ya existe un nombre de usuario (ignorando mayúsculas y minúsculas)
-  bool existeNombreUsuario(String nombreUsuario, {int? excluirId}) {
-    final normalizado = nombreUsuario.trim().toLowerCase();
-    return _usuarios.any(
-      (u) =>
-          u.nombreUsuario.trim().toLowerCase() == normalizado &&
-          (excluirId == null || u.id != excluirId),
-    );
-  }
-
-  /// Agrega un nuevo usuario y notifica a los listeners
-  Usuario agregarUsuario({
-    required String nombreUsuario,
-    required String contrasena,
-    required String nombres,
-    String apellidos = '',
-    String telefono = '',
-    String rol = 'Empleado',
-  }) {
-    final siguienteId = _usuarios.isEmpty
-        ? 1
-        : (_usuarios.map((u) => u.id).reduce((a, b) => a > b ? a : b) + 1);
-
-    final nuevoUsuario = Usuario(
-      id: siguienteId,
-      nombreUsuario: nombreUsuario.trim(),
-      contrasena: contrasena.trim(),
-      nombres: nombres.trim(),
-      apellidos: apellidos.trim(),
-      telefono: telefono.trim(),
-      rol: rol.trim(),
-    );
-
-    _usuarios.add(nuevoUsuario);
+  /// Carga los usuarios desde PostgreSQL local
+  Future<void> cargarUsuarios() async {
+    _cargando = true;
     notifyListeners();
-    return nuevoUsuario;
-  }
-
-  /// Actualiza los datos de un usuario existente
-  void actualizarUsuario(Usuario usuarioActualizado) {
-    final index = _usuarios.indexWhere((u) => u.id == usuarioActualizado.id);
-    if (index != -1) {
-      _usuarios[index] = usuarioActualizado;
+    try {
+      final list = await _repo.obtenerTodos();
+      _usuarios.clear();
+      _usuarios.addAll(list);
+    } catch (_) {
+      // Si la BD no está disponible aún, mantiene lista actual
+    } finally {
+      _cargando = false;
       notifyListeners();
     }
   }
 
-  /// Elimina un usuario por su ID
-  /// Retorna false si se intenta eliminar el último administrador del sistema
-  bool eliminarUsuario(int id) {
-    final index = _usuarios.indexWhere((u) => u.id == id);
+  /// Verifica si ya existe un nombre de usuario
+  bool existeNombreUsuario(String nombreUsuario, {int? excluirId}) {
+    final norm = nombreUsuario.trim().toLowerCase();
+    return _usuarios.any(
+      (u) =>
+          u.nombreUsuario.trim().toLowerCase() == norm &&
+          (excluirId == null || u.idUsuario != excluirId),
+    );
+  }
+
+  /// Agrega un nuevo usuario en PostgreSQL local
+  Future<UsuarioDB> agregarUsuario({
+    String? nombreCompleto,
+    required String nombreUsuario,
+    required String contrasena,
+    required PermisosVentanas permisos,
+  }) async {
+    final nuevo = await _repo.crear(
+      nombreCompleto: nombreCompleto ?? nombreUsuario,
+      nombreUsuario: nombreUsuario,
+      plainPassword: contrasena,
+      permisos: permisos,
+    );
+    _usuarios.add(nuevo);
+    _usuarios.sort((a, b) => a.nombreUsuario.toLowerCase().compareTo(b.nombreUsuario.toLowerCase()));
+    notifyListeners();
+    return nuevo;
+  }
+
+  /// Actualiza los datos y permisos de un usuario existente
+  Future<UsuarioDB> actualizarUsuario({
+    required int idUsuario,
+    String? nombreCompleto,
+    required String nombreUsuario,
+    String? contrasena,
+    required PermisosVentanas permisos,
+    String estatus = 'Activo',
+  }) async {
+    final actualizado = await _repo.actualizar(
+      idUsuario: idUsuario,
+      nombreCompleto: nombreCompleto ?? nombreUsuario,
+      nombreUsuario: nombreUsuario,
+      nuevaPlainPassword: (contrasena != null && contrasena.trim().isNotEmpty) ? contrasena : null,
+      permisos: permisos,
+      estatus: estatus,
+    );
+    final index = _usuarios.indexWhere((u) => u.idUsuario == idUsuario);
+    if (index != -1) {
+      _usuarios[index] = actualizado;
+      _usuarios.sort((a, b) => a.nombreUsuario.toLowerCase().compareTo(b.nombreUsuario.toLowerCase()));
+      notifyListeners();
+    }
+    return actualizado;
+  }
+
+  /// Desactiva (eliminación lógica) un usuario en PostgreSQL local
+  Future<bool> eliminarUsuario(int idUsuario) async {
+    final index = _usuarios.indexWhere((u) => u.idUsuario == idUsuario);
     if (index == -1) return false;
 
-    final usuarioAEliminar = _usuarios[index];
-
-    // Protección para no quedarse sin administradores
-    if (usuarioAEliminar.esAdmin && totalAdmins <= 1) {
+    // Regla de seguridad: evitar eliminar al último usuario que puede gestionar usuarios
+    final usuariosConGestion = _usuarios.where((u) => u.puedeGestionarUsuarios).length;
+    if (_usuarios[index].puedeGestionarUsuarios && usuariosConGestion <= 1) {
       return false;
     }
 
+    await _repo.eliminar(idUsuario);
     _usuarios.removeAt(index);
     notifyListeners();
     return true;
   }
 
-  /// Busca un usuario por su ID
-  Usuario? buscarPorId(int id) {
+  /// Busca un usuario en la memoria local por ID
+  UsuarioDB? buscarPorId(int idUsuario) {
     try {
-      return _usuarios.firstWhere((u) => u.id == id);
+      return _usuarios.firstWhere((u) => u.idUsuario == idUsuario);
     } catch (_) {
       return null;
     }
   }
 
-  /// Busca un usuario por su nombre de usuario
-  Usuario? buscarPorNombreUsuario(String nombreUsuario) {
-    final normalizado = nombreUsuario.trim().toLowerCase();
+  /// Busca un usuario en la memoria local por nombre de usuario
+  UsuarioDB? buscarPorNombreUsuario(String nombreUsuario) {
+    final norm = nombreUsuario.trim().toLowerCase();
     try {
-      return _usuarios.firstWhere(
-        (u) => u.nombreUsuario.trim().toLowerCase() == normalizado,
-      );
+      return _usuarios.firstWhere((u) => u.nombreUsuario.trim().toLowerCase() == norm);
     } catch (_) {
       return null;
     }
-  }
-
-  /// Valida credenciales para inicio de sesión
-  Usuario? autenticar(String nombreUsuario, String contrasena, [String? rolRequerido]) {
-    final usuario = buscarPorNombreUsuario(nombreUsuario);
-    if (usuario == null) return null;
-
-    if (usuario.contrasena == contrasena) {
-      if (rolRequerido != null &&
-          usuario.rol.toLowerCase() != rolRequerido.toLowerCase()) {
-        return null;
-      }
-      return usuario;
-    }
-    return null;
   }
 }

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
-import '../services/usuario_service.dart';
+import '../repositories/auth_repository.dart';
 import 'home_screen.dart';
 
-/// Pantalla de inicio de sesión.
-/// Primero selecciona perfil, luego ingresa usuario y contraseña.
+/// Pantalla de inicio de sesión conectada a PostgreSQL local.
+///
+/// El sistema de roles fue eliminado por completo:
+/// - La autenticación se realiza únicamente con [nombre_usuario] y contraseña.
+/// - Los permisos específicos se cargan automáticamente desde `permisos_ventanas` (JSONB).
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -15,9 +18,11 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _usuarioController = TextEditingController();
   final _contrasenaController = TextEditingController();
+  final _authRepo = AuthRepository.instance;
+
   bool _ocultarContrasena = true;
+  bool _cargando = false;
   String? _errorMensaje;
-  String _perfilSeleccionado = 'Empleado'; // Por defecto
 
   @override
   void dispose() {
@@ -26,11 +31,11 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     final username = _usuarioController.text.trim();
     final password = _contrasenaController.text.trim();
 
-    // Validación básica
+    // 1. Validaciones
     if (username.isEmpty || password.isEmpty) {
       setState(() {
         _errorMensaje = 'Por favor ingresa usuario y contraseña';
@@ -38,30 +43,46 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Si el usuario existe en el sistema, validamos su contraseña y adoptamos su rol
-    final usuarioRegistrado = UsuarioService().buscarPorNombreUsuario(username);
-    String perfilFinal = _perfilSeleccionado;
-
-    if (usuarioRegistrado != null) {
-      if (usuarioRegistrado.contrasena != password) {
-        setState(() {
-          _errorMensaje = 'Contraseña incorrecta para el usuario "$username"';
-        });
-        return;
-      }
-      perfilFinal = usuarioRegistrado.rol;
+    if (username.contains(' ')) {
+      setState(() {
+        _errorMensaje = 'El nombre de usuario no puede contener espacios';
+      });
+      return;
     }
 
     setState(() {
+      _cargando = true;
       _errorMensaje = null;
     });
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => HomeScreen(userType: perfilFinal),
-      ),
-    );
+    try {
+      // 2. Autenticación contra PostgreSQL local
+      final usuario = await _authRepo.login(username, password);
+
+      if (!mounted) return;
+
+      if (usuario == null) {
+        setState(() {
+          _errorMensaje = 'Usuario o contraseña incorrectos, o cuenta inactiva';
+          _cargando = false;
+        });
+        return;
+      }
+
+      // 3. Inicio exitoso: navegar al HomeScreen con el usuario y sus permisos
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomeScreen(usuario: usuario),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMensaje = 'Error al conectar con la base de datos local: $e';
+        _cargando = false;
+      });
+    }
   }
 
   @override
@@ -109,48 +130,27 @@ class _LoginScreenState extends State<LoginScreen> {
                       letterSpacing: 2,
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'PUNTO DE VENTA OFFLINE-FIRST',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
                   const SizedBox(height: 32),
 
-                  // Selector de perfil (arriba)
-                  const Text(
-                    'Tipo de perfil',
-                    style: AppTextStyles.body,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _PerfilButton(
-                          icon: Icons.badge_outlined,
-                          label: 'Empleado',
-                          seleccionado: _perfilSeleccionado == 'Empleado',
-                          onTap: () {
-                            setState(() => _perfilSeleccionado = 'Empleado');
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _PerfilButton(
-                          icon: Icons.admin_panel_settings_outlined,
-                          label: 'Administrador',
-                          seleccionado: _perfilSeleccionado == 'Administrador',
-                          onTap: () {
-                            setState(
-                                () => _perfilSeleccionado = 'Administrador');
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-
-                  // Campo de usuario
+                  // Campo de Nombre de Usuario
                   TextField(
                     controller: _usuarioController,
+                    enabled: !_cargando,
+                    textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
-                      labelText: 'Usuario',
-                      prefixIcon: const Icon(Icons.person_outline_rounded),
+                      labelText: 'Nombre de usuario',
+                      hintText: 'Ej. cajero1',
+                      prefixIcon: const Icon(Icons.alternate_email_rounded),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -176,10 +176,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Campo de contraseña
+                  // Campo de Contraseña
                   TextField(
                     controller: _contrasenaController,
+                    enabled: !_cargando,
                     obscureText: _ocultarContrasena,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _login(),
                     decoration: InputDecoration(
                       labelText: 'Contraseña',
                       prefixIcon: const Icon(Icons.lock_outline_rounded),
@@ -221,12 +224,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Mensaje de error
                   if (_errorMensaje != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _errorMensaje!,
-                      style: const TextStyle(
-                        color: AppColors.error,
-                        fontSize: 13,
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withAlpha(20),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.error.withAlpha(50)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMensaje!,
+                              style: const TextStyle(
+                                color: AppColors.error,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -238,81 +257,30 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton.icon(
-                      onPressed: _login,
-                      icon: const Icon(Icons.login_rounded, size: 20),
-                      label: const Text('Ingresar'),
+                      onPressed: _cargando ? null : _login,
+                      icon: _cargando
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.login_rounded, size: 20),
+                      label: Text(_cargando ? 'Iniciando sesión...' : 'Ingresar'),
                     ),
                   ),
                   const SizedBox(height: 32),
 
                   // Versión
                   Text(
-                    'v0.1.0',
+                    'v0.2.0 • Offline-First Granular',
                     style: AppTextStyles.cardSubtitle.copyWith(fontSize: 12),
                   ),
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Botón para seleccionar perfil (Usuario / Administrador).
-class _PerfilButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool seleccionado;
-  final VoidCallback onTap;
-
-  const _PerfilButton({
-    required this.icon,
-    required this.label,
-    required this.seleccionado,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: seleccionado ? AppColors.primary : AppColors.surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: seleccionado ? AppColors.primary : AppColors.border,
-              width: seleccionado ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: seleccionado
-                    ? AppColors.textOnPrimary
-                    : AppColors.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: seleccionado
-                      ? AppColors.textOnPrimary
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ],
           ),
         ),
       ),

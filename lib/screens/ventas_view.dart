@@ -1,23 +1,48 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
+import '../models/cliente_db.dart';
+import '../repositories/auth_repository.dart';
+import '../repositories/clientes_repository.dart';
+import '../repositories/cortes_caja_repository.dart';
+import '../repositories/ventas_repository.dart';
+import '../services/database_service.dart';
 
 /// Modelo representativo para los artículos de una venta
 class ItemVenta {
+  final int? idProducto;
   final String codigo;
   final String descripcion;
   final double precioVenta;
+  final double? precioMayoreo;
+  final double? cantidadMayoreo;
+  final double costoUnitario;
   int cantidad;
   final int existencia;
 
   ItemVenta({
+    this.idProducto,
     required this.codigo,
     required this.descripcion,
     required this.precioVenta,
+    this.precioMayoreo,
+    this.cantidadMayoreo,
+    this.costoUnitario = 0.0,
     this.cantidad = 1,
     this.existencia = 100,
   });
 
-  double get importe => precioVenta * cantidad;
+  /// Precio unitario efectivo: aplica precio de mayoreo automáticamente si corresponde.
+  double get precioEfectivo {
+    if (precioMayoreo != null &&
+        cantidadMayoreo != null &&
+        cantidadMayoreo! > 0 &&
+        cantidad >= cantidadMayoreo!) {
+      return precioMayoreo!;
+    }
+    return precioVenta;
+  }
+
+  double get importe => precioEfectivo * cantidad;
 }
 
 /// Vista del módulo de Ventas (Punto de Venta estilo Eleventa).
@@ -85,58 +110,26 @@ class _VentasViewState extends State<VentasView> {
     _mostrarMensaje('Venta cancelada / vaciada');
   }
 
-  void _cobrar() {
+  Future<void> _cobrar() async {
     if (_items.isEmpty) {
       _mostrarMensaje('No hay productos en la venta actual', esError: true);
       return;
     }
-    showDialog(
+
+    final exito = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Row(
-          children: [
-            Icon(Icons.point_of_sale_rounded, color: AppColors.ventasIcon),
-            SizedBox(width: 10),
-            Text('Cobrar Venta', style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total a pagar: \$${_totalVenta.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primaryDark,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text('Productos: $_totalProductos artículo(s)'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              setState(() => _items.clear());
-              _mostrarMensaje('¡Venta completada con éxito!');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.ventasIcon,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Completar Venta'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (ctx) => _DialogoCobroAvanzado(
+        totalVenta: _totalVenta,
+        totalProductos: _totalProductos,
+        items: List<ItemVenta>.from(_items),
       ),
     );
+
+    if (exito == true && mounted) {
+      setState(() => _items.clear());
+      _mostrarMensaje('¡Venta registrada con éxito!');
+    }
   }
 
   void _mostrarMensaje(String mensaje, {bool esError = false}) {
@@ -860,6 +853,487 @@ class _VentasViewState extends State<VentasView> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DialogoCobroAvanzado extends StatefulWidget {
+  final double totalVenta;
+  final int totalProductos;
+  final List<ItemVenta> items;
+
+  const _DialogoCobroAvanzado({
+    required this.totalVenta,
+    required this.totalProductos,
+    required this.items,
+  });
+
+  @override
+  State<_DialogoCobroAvanzado> createState() => _DialogoCobroAvanzadoState();
+}
+
+class _DialogoCobroAvanzadoState extends State<_DialogoCobroAvanzado> {
+  String _metodo = 'Efectivo'; // 'Efectivo' | 'Tarjeta' | 'Mixto' | 'Crédito'
+  bool _procesando = false;
+  String? _errorMsg;
+
+  // Efectivo
+  final _pagoConCtrl = TextEditingController();
+
+  // Mixto
+  final _mixtoTarjetaCtrl = TextEditingController();
+  final _mixtoEfectivoCtrl = TextEditingController();
+
+  // Crédito
+  List<ClienteDB> _clientes = [];
+  List<ClienteDB> _clientesFiltrados = [];
+  ClienteDB? _clienteSeleccionado;
+  final _buscarClienteCtrl = TextEditingController();
+  bool _cargandoClientes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pagoConCtrl.text = widget.totalVenta.toStringAsFixed(2);
+    _cargarClientes();
+  }
+
+  @override
+  void dispose() {
+    _pagoConCtrl.dispose();
+    _mixtoTarjetaCtrl.dispose();
+    _mixtoEfectivoCtrl.dispose();
+    _buscarClienteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _cargarClientes() async {
+    setState(() => _cargandoClientes = true);
+    try {
+      final lista = await ClientesRepository.instance.obtenerTodos();
+      if (mounted) {
+        setState(() {
+          _clientes = lista;
+          _clientesFiltrados = lista;
+          _cargandoClientes = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _cargandoClientes = false);
+    }
+  }
+
+  void _filtrarClientes(String q) {
+    final query = q.trim().toLowerCase();
+    setState(() {
+      _clientesFiltrados = _clientes
+          .where((c) =>
+              c.nombreCompleto.toLowerCase().contains(query) ||
+              (c.telefono?.toLowerCase().contains(query) ?? false))
+          .toList();
+    });
+  }
+
+  double get _pagoEfectivo => double.tryParse(_pagoConCtrl.text.trim()) ?? 0.0;
+  double get _cambioEfectivo => _pagoEfectivo - widget.totalVenta;
+
+  double get _mixtoTarjeta => double.tryParse(_mixtoTarjetaCtrl.text.trim()) ?? 0.0;
+  double get _mixtoEfectivo => double.tryParse(_mixtoEfectivoCtrl.text.trim()) ?? 0.0;
+  double get _mixtoRestanteEfectivo => (widget.totalVenta - _mixtoTarjeta).clamp(0.0, double.infinity);
+  double get _mixtoCambio => _mixtoEfectivo - _mixtoRestanteEfectivo;
+
+  bool get _puedeConfirmar {
+    if (_procesando) return false;
+    switch (_metodo) {
+      case 'Efectivo':
+        return _pagoEfectivo >= widget.totalVenta - 0.001;
+      case 'Tarjeta':
+        return true;
+      case 'Mixto':
+        return _mixtoTarjeta > 0 &&
+            _mixtoTarjeta < widget.totalVenta &&
+            (_mixtoTarjeta + _mixtoEfectivo) >= widget.totalVenta - 0.001;
+      case 'Crédito':
+        if (_clienteSeleccionado == null) return false;
+        final c = _clienteSeleccionado!;
+        if (c.tieneLimiteCredito && (c.deudaActual + widget.totalVenta) > c.limiteCredito) {
+          return false;
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  Future<void> _confirmarCobro() async {
+    if (!_puedeConfirmar) return;
+    setState(() {
+      _procesando = true;
+      _errorMsg = null;
+    });
+
+    try {
+      final idUsuario = AuthRepository.instance.usuarioActual?.idUsuario ?? 1;
+      final idCorte = CortesCajaRepository.instance.idCorteActivo;
+      final lineas = widget.items
+          .map((i) => LineaVenta(
+                idProducto: i.idProducto ?? 1,
+                descripcionProducto: i.descripcion,
+                cantidad: i.cantidad.toDouble(),
+                precioUnitario: i.precioEfectivo,
+                costoUnitario: i.costoUnitario,
+              ))
+          .toList();
+
+      final pagos = <PagoVentaInput>[];
+      bool esCredito = false;
+      int? idCliente;
+
+      if (_metodo == 'Efectivo') {
+        final cambio = _cambioEfectivo < 0 ? 0.0 : _cambioEfectivo;
+        pagos.add(PagoVentaInput(
+          nombreFormaPago: 'Efectivo',
+          monto: _pagoEfectivo,
+          cambio: cambio,
+        ));
+      } else if (_metodo == 'Tarjeta') {
+        pagos.add(PagoVentaInput(
+          nombreFormaPago: 'Tarjeta',
+          monto: widget.totalVenta,
+          cambio: 0.0,
+        ));
+      } else if (_metodo == 'Mixto') {
+        final cambio = _mixtoCambio < 0 ? 0.0 : _mixtoCambio;
+        pagos.add(PagoVentaInput(
+          nombreFormaPago: 'Tarjeta',
+          monto: _mixtoTarjeta,
+          cambio: 0.0,
+        ));
+        pagos.add(PagoVentaInput(
+          nombreFormaPago: 'Efectivo',
+          monto: _mixtoEfectivo,
+          cambio: cambio,
+        ));
+      } else if (_metodo == 'Crédito') {
+        idCliente = _clienteSeleccionado!.idCliente;
+        esCredito = true;
+        pagos.add(PagoVentaInput(
+          nombreFormaPago: 'Crédito',
+          monto: widget.totalVenta,
+          cambio: 0.0,
+        ));
+      }
+
+      await VentasRepository(DatabaseService.instance).registrarVenta(
+        idUsuario: idUsuario,
+        idCliente: idCliente,
+        idCorte: idCorte,
+        lineas: lineas,
+        pagos: pagos,
+        esCredito: esCredito,
+      );
+
+      await CortesCajaRepository.instance.refrescarCorteActivo();
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _procesando = false;
+          _errorMsg = 'Error al registrar venta: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.point_of_sale_rounded, color: AppColors.ventasIcon),
+              SizedBox(width: 10),
+              Text('Cobrar Venta', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.primaryDark,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Total: \$${widget.totalVenta.toStringAsFixed(2)}',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Selector de 4 métodos de pago
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'Efectivo', label: Text('Efectivo'), icon: Icon(Icons.payments_outlined)),
+                  ButtonSegment(value: 'Tarjeta', label: Text('Tarjeta'), icon: Icon(Icons.credit_card)),
+                  ButtonSegment(value: 'Mixto', label: Text('Mixto'), icon: Icon(Icons.call_split)),
+                  ButtonSegment(value: 'Crédito', label: Text('Crédito'), icon: Icon(Icons.person_outline)),
+                ],
+                selected: {_metodo},
+                onSelectionChanged: (sel) => setState(() {
+                  _metodo = sel.first;
+                  _errorMsg = null;
+                }),
+              ),
+              const SizedBox(height: 16),
+
+              if (_metodo == 'Efectivo') _buildPanelEfectivo(),
+              if (_metodo == 'Tarjeta') _buildPanelTarjeta(),
+              if (_metodo == 'Mixto') _buildPanelMixto(),
+              if (_metodo == 'Crédito') _buildPanelCredito(),
+
+              if (_errorMsg != null) ...[
+                const SizedBox(height: 12),
+                Text(_errorMsg!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _procesando ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _puedeConfirmar ? _confirmarCobro : null,
+          icon: _procesando
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.check_circle_outline),
+          label: const Text('Confirmar Cobro'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.ventasIcon,
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPanelEfectivo() {
+    final cambio = _cambioEfectivo;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _pagoConCtrl,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Pago con:',
+            prefixText: '\$ ',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionChip(
+              label: const Text('Exacto'),
+              onPressed: () => setState(() => _pagoConCtrl.text = widget.totalVenta.toStringAsFixed(2)),
+            ),
+            for (final billete in [50, 100, 200, 500])
+              ActionChip(
+                label: Text('\$$billete'),
+                onPressed: () => setState(() => _pagoConCtrl.text = billete.toStringAsFixed(2)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cambio >= 0 ? Colors.green.shade50 : Colors.red.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: cambio >= 0 ? Colors.green.shade300 : Colors.red.shade300),
+          ),
+          child: Text(
+            cambio >= 0
+                ? 'Cambio: \$${cambio.toStringAsFixed(2)}'
+                : 'Falta: \$${(-cambio).toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: cambio >= 0 ? Colors.green.shade800 : Colors.red.shade800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPanelTarjeta() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Pago con Tarjeta (Sin cambio)', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text('Monto a cargar: \$${widget.totalVenta.toStringAsFixed(2)}'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPanelMixto() {
+    final restante = _mixtoRestanteEfectivo;
+    final cambio = _mixtoCambio;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _mixtoTarjetaCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Monto con Tarjeta',
+            prefixText: '\$ ',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Restante por cubrir en efectivo: \$${restante.toStringAsFixed(2)}',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primaryDark),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _mixtoEfectivoCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Efectivo recibido',
+            prefixText: '\$ ',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+        if (_mixtoTarjeta > 0 && _mixtoTarjeta < widget.totalVenta)
+          Text(
+            cambio >= 0
+                ? 'Cambio en efectivo: \$${cambio.toStringAsFixed(2)}'
+                : 'Falta en efectivo: \$${(-cambio).toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: cambio >= 0 ? Colors.green.shade800 : Colors.red.shade800,
+            ),
+          )
+        else
+          const Text(
+            'El monto con tarjeta debe ser mayor a \$0 y menor al total.',
+            style: TextStyle(fontSize: 12, color: Colors.orange),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPanelCredito() {
+    final c = _clienteSeleccionado;
+    final excede = c != null && c.tieneLimiteCredito && (c.deudaActual + widget.totalVenta) > c.limiteCredito;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _buscarClienteCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Buscar cliente activo...',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: _filtrarClientes,
+        ),
+        const SizedBox(height: 8),
+        if (_cargandoClientes)
+          const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
+        else
+          Container(
+            height: 140,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListView.builder(
+              itemCount: _clientesFiltrados.length,
+              itemBuilder: (_, idx) {
+                final cli = _clientesFiltrados[idx];
+                final sel = _clienteSeleccionado?.idCliente == cli.idCliente;
+                return ListTile(
+                  dense: true,
+                  selected: sel,
+                  selectedTileColor: AppColors.primary.withValues(alpha: 0.1),
+                  title: Text(cli.nombreCompleto, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text('Deuda: \$${cli.deudaActual.toStringAsFixed(2)}'),
+                  trailing: Text(
+                    cli.tieneLimiteCredito ? 'Lím: \$${cli.limiteCredito.toStringAsFixed(2)}' : 'Sin límite',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onTap: () => setState(() => _clienteSeleccionado = cli),
+                );
+              },
+            ),
+          ),
+        if (c != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: excede ? Colors.red.shade50 : Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: excede ? Colors.red.shade300 : Colors.green.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Cliente: ${c.nombreCompleto}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  'Deuda actual: \$${c.deudaActual.toStringAsFixed(2)}  •  '
+                  'Límite: ${c.tieneLimiteCredito ? '\$${c.limiteCredito.toStringAsFixed(2)}' : 'Sin límite de crédito'}',
+                ),
+                if (excede)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      '⚠️ Esta venta excede el límite de crédito disponible del cliente.',
+                      style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
