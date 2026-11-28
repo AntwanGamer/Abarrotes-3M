@@ -44,6 +44,11 @@ class SyncService {
   void init(DatabaseService db) {
     _db = db;
 
+    if (_db.isCloudOnlyMode) {
+      dev.log('[SyncService] ℹ️ Modo Solo Nube activo: se desactivan ciclos automáticos PUSH/PULL.');
+      return;
+    }
+
     // Timer periódico cada 30 segundos
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       syncNow();
@@ -69,6 +74,11 @@ class SyncService {
   /// Ejecuta un ciclo completo de sincronización (PUSH + PULL).
   /// Si ya hay una sincronización en curso, no hace nada.
   Future<void> syncNow() async {
+    if (_db.isCloudOnlyMode) {
+      dev.log('[SyncService] ⏭️ Modo Solo Nube: sincronización local omitida.');
+      return;
+    }
+
     if (_syncing) {
       dev.log('[SyncService] ⏭️ Sincronización ya en curso, saltando...');
       return;

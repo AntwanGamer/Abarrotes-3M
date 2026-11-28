@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_theme.dart';
 import '../models/corte_caja.dart';
 import '../models/movimiento_caja.dart';
@@ -41,6 +42,113 @@ class _CorteResumenDB {
     required int idCorte,
     bool esDia = false,
   }) async {
+    if (_db.isCloudOnlyMode) {
+      // 1. Ventas desde Supabase
+      var vQuery = _db.supabase
+          .from('tbl_ventas')
+          .select('id_venta, total, fecha_venta, tbl_detalle_ventas(importe, cantidad, costo_unitario, id_producto, tbl_productos(tbl_departamentos(nombre_departamento)))')
+          .eq('estatus_venta', 'Completada');
+
+      if (esDia) {
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day).toIso8601String();
+        vQuery = vQuery.gte('fecha_venta', todayStart);
+      } else {
+        vQuery = vQuery.eq('id_corte', idCorte);
+      }
+
+      final ventasRes = await vQuery;
+      final ventasList = List<Map<String, dynamic>>.from(ventasRes);
+
+      final numVentas = ventasList.length;
+      double totalVentas = 0.0;
+      double ganancia = 0.0;
+      final Map<String, double> deptosMap = {};
+
+      for (final v in ventasList) {
+        totalVentas += parseDecimal(v['total']);
+        final detalles = v['tbl_detalle_ventas'];
+        if (detalles is List) {
+          for (final d in detalles) {
+            final imp = parseDecimal(d['importe']);
+            final cant = parseDecimal(d['cantidad']);
+            final costo = parseDecimal(d['costo_unitario']);
+            ganancia += (imp - (cant * costo));
+
+            String deptoNom = 'Sin Departamento';
+            final prod = d['tbl_productos'];
+            if (prod is Map) {
+              final dept = prod['tbl_departamentos'];
+              if (dept is Map && dept['nombre_departamento'] != null) {
+                deptoNom = dept['nombre_departamento'].toString();
+              }
+            }
+            deptosMap[deptoNom] = (deptosMap[deptoNom] ?? 0.0) + imp;
+          }
+        }
+      }
+
+      // 2. Pagos y forma de pago
+      final idsVentas = ventasList.map((v) => v['id_venta']).toList();
+      final metodosMap = <String, double>{};
+      double efVentas = 0.0;
+
+      if (idsVentas.isNotEmpty) {
+        final pagosRes = await _db.supabase
+            .from('tbl_pagos_venta')
+            .select('monto, cambio, tbl_formas_pago(nombre_forma_pago)')
+            .inFilter('id_venta', idsVentas);
+
+        for (final p in pagosRes) {
+          final fp = p['tbl_formas_pago'];
+          final fpNombre = (fp is Map ? fp['nombre_forma_pago'] : null)?.toString() ?? 'Efectivo';
+          final monto = parseDecimal(p['monto']);
+          final cambio = parseDecimal(p['cambio']);
+          metodosMap[fpNombre] = (metodosMap[fpNombre] ?? 0.0) + monto;
+          if (fpNombre.toLowerCase().contains('efectivo')) {
+            efVentas += (monto - cambio);
+          }
+        }
+      }
+
+      // 3. Abonos en efectivo
+      var aQuery = _db.supabase
+          .from('tbl_abonos_clientes')
+          .select('monto, tbl_formas_pago(nombre_forma_pago)');
+      if (esDia) {
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day).toIso8601String();
+        aQuery = aQuery.gte('fecha_registro', todayStart);
+      } else {
+        aQuery = aQuery.eq('id_corte', idCorte);
+      }
+
+      final abonosRes = await aQuery;
+      double efAbonos = 0.0;
+      for (final a in abonosRes) {
+        final fp = a['tbl_formas_pago'];
+        final fpNombre = (fp is Map ? fp['nombre_forma_pago'] : null)?.toString() ?? 'Efectivo';
+        if (fpNombre.toLowerCase().contains('efectivo')) {
+          efAbonos += parseDecimal(a['monto']);
+        }
+      }
+
+      final deptos = deptosMap.entries
+          .map((e) => {'nombre': e.key, 'subtotal': e.value})
+          .toList()
+        ..sort((a, b) => (b['subtotal'] as double).compareTo(a['subtotal'] as double));
+
+      return _ResumenCorte(
+        ventasTotales: totalVentas,
+        ventasEfectivo: efVentas,
+        abonosEfectivo: efAbonos,
+        gananciaTotal: ganancia,
+        numeroVentas: numVentas,
+        ventasPorMetodo: metodosMap,
+        ventasPorDepartamento: deptos,
+      );
+    }
+
     final whereCorte =
         esDia ? "DATE(v.fecha_venta) = CURRENT_DATE" : "v.id_corte = @idCorte";
 
@@ -143,6 +251,25 @@ class _CorteResumenDB {
     required int idCorte,
     bool esDia = false,
   }) async {
+    if (_db.isCloudOnlyMode) {
+      PostgrestFilterBuilder query = _db.supabase
+          .from('tbl_movimientos_caja')
+          .select();
+
+      if (esDia) {
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day).toIso8601String();
+        query = query.gte('fecha_registro', todayStart);
+      } else {
+        query = query.eq('id_corte', idCorte);
+      }
+
+      final res = await query.order('fecha_registro', ascending: false);
+      return (res as List)
+          .map((r) => MovimientoCaja.fromMap(r as Map<String, dynamic>))
+          .toList();
+    }
+
     final res = await _db.query(
       esDia
           ? '''SELECT * FROM tbl_movimientos_caja
@@ -162,6 +289,20 @@ class _CorteResumenDB {
     required double efectivoEsperado,
   }) async {
     final diferencia = efectivoContado - efectivoEsperado;
+    final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_cortes_caja').update({
+        'estatus_corte': 'Cerrado',
+        'fecha_cierre': now,
+        'efectivo_contado': efectivoContado,
+        'diferencia': diferencia,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+      }).eq('id_corte', idCorte);
+      return;
+    }
+
     await _db.query('''
       UPDATE tbl_cortes_caja SET
         estatus_corte       = 'Cerrado',

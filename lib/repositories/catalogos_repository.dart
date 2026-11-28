@@ -38,6 +38,15 @@ class CatalogosRepository {
 
   /// Obtiene departamentos activos.
   Future<List<Departamento>> obtenerDepartamentos() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_departamentos')
+          .select()
+          .eq('estatus', 'Activo')
+          .order('nombre_departamento', ascending: true);
+      return (res as List).map((r) => Departamento.fromMap(r as Map<String, dynamic>)).toList();
+    }
+
     final res = await _db.query(
       "SELECT * FROM tbl_departamentos WHERE estatus::text = 'Activo' ORDER BY nombre_departamento ASC",
     );
@@ -47,6 +56,21 @@ class CatalogosRepository {
   /// Crea un departamento nuevo.
   Future<Departamento> crearDepartamento(String nombre) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      final insertData = {
+        'nombre_departamento': nombre.trim(),
+        'estatus': 'Activo',
+        'fecha_registro': now,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+        'terminal_origen': _db.terminalId,
+      };
+      final res = await _db.supabase.from('tbl_departamentos').insert(insertData).select().single();
+      dev.log('[CatalogosRepository] ✅ Departamento creado en Supabase: $nombre');
+      return Departamento.fromMap(res);
+    }
+
     final res = await _db.query(
       '''INSERT INTO tbl_departamentos
          (nombre_departamento, estatus, fecha_registro, fecha_actualizacion, sincronizado, terminal_origen)
@@ -66,6 +90,15 @@ class CatalogosRepository {
   /// Actualiza el nombre de un departamento.
   Future<void> actualizarDepartamento(int idDepartamento, String nombre) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_departamentos').update({
+        'nombre_departamento': nombre.trim(),
+        'fecha_actualizacion': now,
+      }).eq('id_departamento', idDepartamento);
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_departamentos SET
          nombre_departamento = @nombre,
@@ -85,6 +118,15 @@ class CatalogosRepository {
   /// Eliminación lógica de un departamento.
   Future<void> eliminarDepartamento(int idDepartamento) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_departamentos').update({
+        'estatus': 'Inactivo',
+        'fecha_actualizacion': now,
+      }).eq('id_departamento', idDepartamento);
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_departamentos SET
          estatus = 'Inactivo',
@@ -106,6 +148,15 @@ class CatalogosRepository {
 
   /// Obtiene formas de pago activas (Efectivo, Tarjeta, Transferencia, Crédito, Vales).
   Future<List<FormaPago>> obtenerFormasPago() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_formas_pago')
+          .select()
+          .eq('estatus', 'Activo')
+          .order('id_forma_pago', ascending: true);
+      return (res as List).map((r) => FormaPago.fromMap(r as Map<String, dynamic>)).toList();
+    }
+
     final res = await _db.query(
       "SELECT * FROM tbl_formas_pago WHERE estatus::text = 'Activo' ORDER BY id_forma_pago",
     );
@@ -114,6 +165,18 @@ class CatalogosRepository {
 
   /// Busca una forma de pago por nombre (case-insensitive) y retorna su id_forma_pago.
   Future<int?> obtenerIdFormaPagoPorNombre(String nombre) async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_formas_pago')
+          .select('id_forma_pago')
+          .ilike('nombre_forma_pago', nombre.trim())
+          .eq('estatus', 'Activo')
+          .limit(1)
+          .maybeSingle();
+      if (res == null) return null;
+      return res['id_forma_pago'] as int?;
+    }
+
     final res = await _db.query(
       "SELECT id_forma_pago FROM tbl_formas_pago WHERE LOWER(nombre_forma_pago) = @nombre AND estatus::text = 'Activo' LIMIT 1",
       params: {'nombre': nombre.trim().toLowerCase()},
@@ -128,6 +191,26 @@ class CatalogosRepository {
 
   /// Obtiene todas las promociones activas junto con la información de su producto.
   Future<List<PromocionConProducto>> obtenerTodasPromociones() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_promociones')
+          .select('*, tbl_productos(codigo_barras, descripcion)')
+          .eq('estatus', 'Activo')
+          .order('fecha_inicio', ascending: false);
+
+      return (res as List).map((r) {
+        final m = Map<String, dynamic>.from(r as Map);
+        final prod = m['tbl_productos'];
+        final cod = (prod is Map ? prod['codigo_barras'] : null)?.toString() ?? '';
+        final desc = (prod is Map ? prod['descripcion'] : null)?.toString() ?? '';
+        return PromocionConProducto(
+          promocion: Promocion.fromMap(m),
+          codigoBarras: cod,
+          descripcionProducto: desc,
+        );
+      }).toList();
+    }
+
     const sql = '''
       SELECT pr.*, p.codigo_barras, p.descripcion
       FROM tbl_promociones pr
@@ -146,7 +229,7 @@ class CatalogosRepository {
     }).toList();
   }
 
-  /// Crea una nueva promoción en PostgreSQL local.
+  /// Crea una nueva promoción.
   Future<Promocion> crearPromocion({
     required String nombrePromocion,
     required int idProducto,
@@ -158,6 +241,28 @@ class CatalogosRepository {
     required DateTime fechaFin,
   }) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      final insertData = {
+        'nombre_promocion': nombrePromocion.trim(),
+        'id_producto': idProducto,
+        'tipo_promocion': tipoPromocion,
+        'cantidad_minima': cantidadMinima,
+        'cantidad_paga': cantidadPaga,
+        'valor_descuento': valorDescuento,
+        'fecha_inicio': fechaInicio.toIso8601String(),
+        'fecha_fin': fechaFin.toIso8601String(),
+        'estatus': 'Activo',
+        'fecha_registro': now,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+        'terminal_origen': _db.terminalId,
+      };
+      final res = await _db.supabase.from('tbl_promociones').insert(insertData).select().single();
+      dev.log('[CatalogosRepository] ✅ Promoción creada en Supabase: $nombrePromocion');
+      return Promocion.fromMap(res);
+    }
+
     final res = await _db.query(
       '''INSERT INTO tbl_promociones
          (nombre_promocion, id_producto, tipo_promocion, cantidad_minima,
@@ -198,6 +303,22 @@ class CatalogosRepository {
     required DateTime fechaFin,
   }) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_promociones').update({
+        'nombre_promocion': nombrePromocion.trim(),
+        'id_producto': idProducto,
+        'tipo_promocion': tipoPromocion,
+        'cantidad_minima': cantidadMinima,
+        'cantidad_paga': cantidadPaga,
+        'valor_descuento': valorDescuento,
+        'fecha_inicio': fechaInicio.toIso8601String(),
+        'fecha_fin': fechaFin.toIso8601String(),
+        'fecha_actualizacion': now,
+      }).eq('id_promocion', idPromocion);
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_promociones SET
          nombre_promocion = @nombre,
@@ -231,6 +352,15 @@ class CatalogosRepository {
   /// Desactiva una promoción (baja lógica).
   Future<void> desactivarPromocion(int idPromocion) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_promociones').update({
+        'estatus': 'Inactivo',
+        'fecha_actualizacion': now,
+      }).eq('id_promocion', idPromocion);
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_promociones SET
          estatus = 'Inactivo',
@@ -248,6 +378,18 @@ class CatalogosRepository {
 
   /// Obtiene promociones activas y vigentes para un producto.
   Future<List<Promocion>> obtenerPromocionesVigentes(int idProducto) async {
+    if (_db.isCloudOnlyMode) {
+      final nowStr = DateTime.now().toIso8601String().substring(0, 10);
+      final res = await _db.supabase
+          .from('tbl_promociones')
+          .select()
+          .eq('id_producto', idProducto)
+          .eq('estatus', 'Activo')
+          .lte('fecha_inicio', nowStr)
+          .gte('fecha_fin', nowStr);
+      return (res as List).map((r) => Promocion.fromMap(r as Map<String, dynamic>)).toList();
+    }
+
     final res = await _db.query(
       '''SELECT * FROM tbl_promociones
          WHERE id_producto = @idProd
@@ -260,12 +402,18 @@ class CatalogosRepository {
 
   /// Obtiene la configuración del negocio.
   Future<ConfiguracionNegocio?> obtenerConfiguracion() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase.from('tbl_configuracion').select().limit(1).maybeSingle();
+      if (res == null) return null;
+      return ConfiguracionNegocio.fromMap(res);
+    }
+
     final res = await _db.query('SELECT * FROM tbl_configuracion LIMIT 1');
     if (res.isEmpty) return null;
     return ConfiguracionNegocio.fromMap(res.first.toColumnMap());
   }
 
-  /// Guarda o actualiza la configuración del negocio en PostgreSQL local.
+  /// Guarda o actualiza la configuración del negocio.
   Future<void> guardarConfiguracion({
     required String nombreNegocio,
     String? direccionNegocio,
@@ -274,6 +422,35 @@ class CatalogosRepository {
     required bool imprimirTicket,
   }) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      final existe = await _db.supabase.from('tbl_configuracion').select('id_configuracion').limit(1).maybeSingle();
+      if (existe == null) {
+        await _db.supabase.from('tbl_configuracion').insert({
+          'nombre_negocio': nombreNegocio.trim(),
+          'direccion_negocio': direccionNegocio?.trim().isEmpty == true ? null : direccionNegocio?.trim(),
+          'telefono_negocio': telefonoNegocio?.trim().isEmpty == true ? null : telefonoNegocio?.trim(),
+          'mensaje_ticket': mensajeTicket?.trim().isEmpty == true ? null : mensajeTicket?.trim(),
+          'imprimir_ticket': imprimirTicket,
+          'fecha_registro': now,
+          'fecha_actualizacion': now,
+          'sincronizado': true,
+          'terminal_origen': _db.terminalId,
+        });
+      } else {
+        final id = existe['id_configuracion'];
+        await _db.supabase.from('tbl_configuracion').update({
+          'nombre_negocio': nombreNegocio.trim(),
+          'direccion_negocio': direccionNegocio?.trim().isEmpty == true ? null : direccionNegocio?.trim(),
+          'telefono_negocio': telefonoNegocio?.trim().isEmpty == true ? null : telefonoNegocio?.trim(),
+          'mensaje_ticket': mensajeTicket?.trim().isEmpty == true ? null : mensajeTicket?.trim(),
+          'imprimir_ticket': imprimirTicket,
+          'fecha_actualizacion': now,
+        }).eq('id_configuracion', id);
+      }
+      return;
+    }
+
     final existe = await _db.query('SELECT id_configuracion FROM tbl_configuracion LIMIT 1');
     if (existe.isEmpty) {
       await _db.query('''

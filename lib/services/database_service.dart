@@ -13,11 +13,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class DatabaseService {
   static DatabaseService? _instance;
 
-  late final Pool _localPool;
+  Pool? _localPool;
   SupabaseClient? _supabaseClient;
   late final String terminalId;
 
   bool _initialized = false;
+
+  /// Bandera global que indica si la app opera exclusivamente contra Supabase
+  /// sin requerir base de datos PostgreSQL local instalada o activa.
+  bool isCloudOnlyMode = true;
 
   DatabaseService._();
 
@@ -31,7 +35,12 @@ class DatabaseService {
   bool get isInitialized => _initialized;
 
   /// Pool de conexiones a PostgreSQL local (API v3).
-  Pool get localPool => _localPool;
+  Pool get localPool {
+    if (_localPool == null) {
+      throw StateError('PostgreSQL local no está disponible. Operando en Modo Solo Nube.');
+    }
+    return _localPool!;
+  }
 
   /// Indica si Supabase fue configurado con credenciales válidas.
   bool get isSupabaseConfigured => _supabaseClient != null;
@@ -48,7 +57,9 @@ class DatabaseService {
   // Inicialización
   // ---------------------------------------------------------------------------
 
-  /// Inicializa ambas conexiones. Debe llamarse una sola vez en [main].
+  /// Inicializa conexiones.
+  /// Si PostgreSQL local no responde en 1.5 segundos o falla, activa automáticamente
+  /// [isCloudOnlyMode = true] y continúa sin bloquear el arranque hacia el Login.
   Future<void> init() async {
     if (_initialized) return;
 
@@ -64,33 +75,7 @@ class DatabaseService {
 
     terminalId = dotenv.env['TERMINAL_ID'] ?? 'CAJA_01';
 
-    // 2. Crear Pool local (postgres v3 API)
-    _localPool = Pool.withEndpoints(
-      [
-        Endpoint(
-          host: host,
-          port: port,
-          database: dbName,
-          username: user,
-          password: password,
-        ),
-      ],
-      settings: PoolSettings(
-        maxConnectionCount: 5,
-        sslMode: SslMode.disable,
-      ),
-    );
-
-    // 3. Verificar conexión local con un ping
-    try {
-      await _localPool.execute(Sql.named('SELECT 1'));
-      dev.log('[DatabaseService] ✅ PostgreSQL local conectado ($host:$port/$dbName)');
-    } catch (e) {
-      dev.log('[DatabaseService] ⚠️ PostgreSQL local no disponible: $e');
-      // No lanzamos excepción: la app puede seguir con datos en caché.
-    }
-
-    // 4. Inicializar Supabase de forma segura (tolerante a fallos si está offline o sin configurar)
+    // 2. Inicializar Supabase de forma prioritaria
     if (supabaseUrl.isNotEmpty && !supabaseUrl.contains('tu-proyecto')) {
       try {
         await Supabase.initialize(
@@ -98,12 +83,40 @@ class DatabaseService {
           anonKey: supabaseAnonKey,
         );
         _supabaseClient = Supabase.instance.client;
-        dev.log('[DatabaseService] ✅ Supabase inicializado ($supabaseUrl)');
+        dev.log('[DatabaseService] ✅ Supabase inicializado correctamente ($supabaseUrl)');
       } catch (e) {
-        dev.log('[DatabaseService] ⚠️ Supabase no disponible en el arranque: $e');
+        dev.log('[DatabaseService] ⚠️ Supabase no disponible en arranque: $e');
       }
     } else {
-      dev.log('[DatabaseService] ℹ️ Supabase no configurado en .env (operando en modo 100% offline)');
+      dev.log('[DatabaseService] ℹ️ Supabase no configurado en .env');
+    }
+
+    // 3. Probar conexión a PostgreSQL local con timeout estricto de 1.5 segundos
+    try {
+      final pool = Pool.withEndpoints(
+        [
+          Endpoint(
+            host: host,
+            port: port,
+            database: dbName,
+            username: user,
+            password: password,
+          ),
+        ],
+        settings: PoolSettings(
+          maxConnectionCount: 5,
+          sslMode: SslMode.disable,
+        ),
+      );
+
+      await pool.execute(Sql.named('SELECT 1')).timeout(const Duration(milliseconds: 1500));
+      _localPool = pool;
+      isCloudOnlyMode = false;
+      dev.log('[DatabaseService] ✅ PostgreSQL local conectado ($host:$port/$dbName)');
+    } catch (e) {
+      _localPool = null;
+      isCloudOnlyMode = true;
+      dev.log('[DatabaseService] ☁️ PostgreSQL local no disponible tras timeout de 1.5s: $e. Activando Modo Solo Nube.');
     }
 
     _initialized = true;
@@ -116,7 +129,10 @@ class DatabaseService {
   /// Ejecuta una consulta SQL con parámetros nombrados en PostgreSQL local.
   /// Retorna una [Result] iterable de filas.
   Future<Result> query(String sql, {Map<String, dynamic>? params}) async {
-    return _localPool.execute(
+    if (_localPool == null) {
+      throw StateError('PostgreSQL local no está conectado. Operando en Modo Solo Nube.');
+    }
+    return _localPool!.execute(
       Sql.named(sql),
       parameters: params ?? {},
     );
@@ -126,7 +142,10 @@ class DatabaseService {
   Future<T> transaction<T>(
     Future<T> Function(TxSession session) action,
   ) async {
-    return _localPool.runTx(action);
+    if (_localPool == null) {
+      throw StateError('PostgreSQL local no está conectado. Operando en Modo Solo Nube.');
+    }
+    return _localPool!.runTx(action);
   }
 
   // ---------------------------------------------------------------------------
@@ -155,7 +174,7 @@ class DatabaseService {
 
   /// Cierra las conexiones. Llamar al cerrar la app si es necesario.
   Future<void> dispose() async {
-    await _localPool.close();
+    await _localPool?.close();
     dev.log('[DatabaseService] Pool local cerrado.');
   }
 }

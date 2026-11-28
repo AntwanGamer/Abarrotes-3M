@@ -1,10 +1,11 @@
 import 'dart:developer' as dev;
 import 'package:postgres/postgres.dart';
 import '../models/corte_caja.dart';
+import '../models/helpers.dart';
 import '../models/movimiento_caja.dart';
 import '../services/database_service.dart';
 
-/// Repositorio local-first para [tbl_cortes_caja] y [tbl_movimientos_caja].
+/// Repositorio local-first y cloud-direct para [tbl_cortes_caja] y [tbl_movimientos_caja].
 class CortesCajaRepository {
   final DatabaseService _db;
 
@@ -26,6 +27,23 @@ class CortesCajaRepository {
 
   /// Consulta el último corte en estado `'Abierto'`.
   Future<CorteCaja?> obtenerUltimoCorteAbierto() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_cortes_caja')
+          .select('*, tbl_usuarios(nombre_completo, nombre_usuario)')
+          .eq('estatus_corte', 'Abierto')
+          .order('fecha_apertura', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      if (res == null) return null;
+      final map = Map<String, dynamic>.from(res);
+      final u = map['tbl_usuarios'];
+      if (u is Map) {
+        map['nombre_usuario'] = u['nombre_completo'] ?? u['nombre_usuario'];
+      }
+      return CorteCaja.fromMap(map);
+    }
+
     final res = await _db.query(
       '''SELECT c.*, COALESCE(u.nombre_completo, u.nombre_usuario) AS nombre_usuario
          FROM tbl_cortes_caja c
@@ -54,6 +72,54 @@ class CortesCajaRepository {
     required double fondoInicial,
   }) async {
     final terminalId = _db.terminalId;
+
+    if (_db.isCloudOnlyMode) {
+      final now = DateTime.now().toIso8601String();
+      // 1. Cerrar cualquier corte abierto previo en Supabase
+      await _db.supabase
+          .from('tbl_cortes_caja')
+          .update({
+            'estatus_corte': 'Cerrado',
+            'fecha_cierre': now,
+            'fecha_actualizacion': now,
+          })
+          .eq('estatus_corte', 'Abierto');
+
+      // 2. Insertar nuevo corte
+      final insertData = {
+        'id_usuario': idUsuario,
+        'fecha_apertura': now,
+        'fondo_inicial': fondoInicial,
+        'total_ventas': 0.0,
+        'total_entradas': 0.0,
+        'total_salidas': 0.0,
+        'efectivo_esperado': fondoInicial,
+        'efectivo_contado': 0.0,
+        'diferencia': 0.0,
+        'estatus_corte': 'Abierto',
+        'fecha_registro': now,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+        'terminal_origen': terminalId,
+      };
+
+      final res = await _db.supabase
+          .from('tbl_cortes_caja')
+          .insert(insertData)
+          .select('*, tbl_usuarios(nombre_completo, nombre_usuario)')
+          .single();
+
+      final map = Map<String, dynamic>.from(res);
+      final u = map['tbl_usuarios'];
+      if (u is Map) {
+        map['nombre_usuario'] = u['nombre_completo'] ?? u['nombre_usuario'];
+      }
+      final nuevo = CorteCaja.fromMap(map);
+      _corteActivo = nuevo;
+      dev.log('[CortesCajaRepository] ✅ Corte nuevo en Supabase #${nuevo.idCorte} iniciado.');
+      return nuevo;
+    }
+
     final nuevoCorte = await _db.transaction<CorteCaja>((tx) async {
       await tx.execute(
         Sql.named('''UPDATE tbl_cortes_caja
@@ -111,6 +177,54 @@ class CortesCajaRepository {
     }
     final terminalId = _db.terminalId;
 
+    if (_db.isCloudOnlyMode) {
+      final now = DateTime.now().toIso8601String();
+      final movData = {
+        'id_corte': idCorte,
+        'id_usuario': idUsuario,
+        'tipo_movimiento': tipoMovimiento,
+        'monto': monto,
+        'concepto': concepto.trim(),
+        'fecha_registro': now,
+        'sincronizado': true,
+        'terminal_origen': terminalId,
+      };
+      final res = await _db.supabase.from('tbl_movimientos_caja').insert(movData).select().single();
+
+      final esEntrada = tipoMovimiento.toLowerCase() == 'entrada';
+      final current = await _db.supabase.from('tbl_cortes_caja').select().eq('id_corte', idCorte).single();
+      final tEntradas = parseDecimal(current['total_entradas']);
+      final tSalidas = parseDecimal(current['total_salidas']);
+      final eEsperado = parseDecimal(current['efectivo_esperado']);
+
+      final updateMap = <String, dynamic>{
+        'fecha_actualizacion': now,
+        if (esEntrada) ...{
+          'total_entradas': tEntradas + monto,
+          'efectivo_esperado': eEsperado + monto,
+        } else ...{
+          'total_salidas': tSalidas + monto,
+          'efectivo_esperado': eEsperado - monto,
+        }
+      };
+
+      final corteRes = await _db.supabase
+          .from('tbl_cortes_caja')
+          .update(updateMap)
+          .eq('id_corte', idCorte)
+          .select('*, tbl_usuarios(nombre_completo, nombre_usuario)')
+          .single();
+
+      final map = Map<String, dynamic>.from(corteRes);
+      final u = map['tbl_usuarios'];
+      if (u is Map) {
+        map['nombre_usuario'] = u['nombre_completo'] ?? u['nombre_usuario'];
+      }
+      _corteActivo = CorteCaja.fromMap(map);
+      dev.log('[CortesCajaRepository] ✅ Movimiento en Supabase ($tipoMovimiento \$${monto.toStringAsFixed(2)}) registrado.');
+      return MovimientoCaja.fromMap(res);
+    }
+
     final mov = await _db.transaction<MovimientoCaja>((tx) async {
       final res = await tx.execute(
         Sql.named('''INSERT INTO tbl_movimientos_caja
@@ -166,9 +280,27 @@ class CortesCajaRepository {
     return mov;
   }
 
-  /// Refresca el corte activo desde PostgreSQL local.
+  /// Refresca el corte activo desde PostgreSQL local o Supabase.
   Future<void> refrescarCorteActivo() async {
     if (_corteActivo == null) return;
+
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_cortes_caja')
+          .select('*, tbl_usuarios(nombre_completo, nombre_usuario)')
+          .eq('id_corte', _corteActivo!.idCorte)
+          .maybeSingle();
+      if (res != null) {
+        final map = Map<String, dynamic>.from(res);
+        final u = map['tbl_usuarios'];
+        if (u is Map) {
+          map['nombre_usuario'] = u['nombre_completo'] ?? u['nombre_usuario'];
+        }
+        _corteActivo = CorteCaja.fromMap(map);
+      }
+      return;
+    }
+
     final res = await _db.query(
       '''SELECT c.*, COALESCE(u.nombre_completo, u.nombre_usuario) AS nombre_usuario
          FROM tbl_cortes_caja c

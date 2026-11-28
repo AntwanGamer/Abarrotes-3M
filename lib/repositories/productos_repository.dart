@@ -57,6 +57,15 @@ class ProductosRepository {
 
   /// Obtiene todos los productos activos, ordenados por descripción.
   Future<List<Producto>> obtenerTodos() async {
+    if (_db.isCloudOnlyMode) {
+      final result = await _db.supabase
+          .from('tbl_productos')
+          .select()
+          .eq('estatus', 'Activo')
+          .order('descripcion', ascending: true);
+      return (result as List).map((row) => Producto.fromMap(row as Map<String, dynamic>)).toList();
+    }
+
     final result = await _db.query(
       "SELECT * FROM tbl_productos WHERE estatus::text = 'Activo' ORDER BY descripcion",
     );
@@ -65,6 +74,32 @@ class ProductosRepository {
 
   /// Obtiene todos los productos activos acompañados del nombre de su departamento.
   Future<List<ProductoConDepartamento>> obtenerCatalogoCompleto({int? idDepartamento, String? busqueda}) async {
+    if (_db.isCloudOnlyMode) {
+      var query = _db.supabase
+          .from('tbl_productos')
+          .select('*, tbl_departamentos(nombre_departamento)')
+          .eq('estatus', 'Activo');
+
+      if (idDepartamento != null && idDepartamento > 0) {
+        query = query.eq('id_departamento', idDepartamento);
+      }
+      if (busqueda != null && busqueda.trim().isNotEmpty) {
+        final clean = busqueda.trim();
+        query = query.or('descripcion.ilike.%$clean%,codigo_barras.ilike.%$clean%');
+      }
+
+      final res = await query.order('descripcion', ascending: true);
+      return (res as List).map((r) {
+        final m = Map<String, dynamic>.from(r as Map);
+        final dept = m['tbl_departamentos'];
+        final deptoNom = (dept is Map ? dept['nombre_departamento'] : null)?.toString() ?? 'Sin Departamento';
+        return ProductoConDepartamento(
+          producto: Producto.fromMap(m),
+          nombreDepartamento: deptoNom,
+        );
+      }).toList();
+    }
+
     String sql = '''
       SELECT p.*, COALESCE(d.nombre_departamento, 'Sin Departamento') AS nombre_departamento
       FROM tbl_productos p
@@ -97,6 +132,17 @@ class ProductosRepository {
 
   /// Busca un producto por su [codigoBarras] exacto.
   Future<Producto?> buscarPorCodigo(String codigoBarras) async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_productos')
+          .select()
+          .eq('codigo_barras', codigoBarras.trim())
+          .eq('estatus', 'Activo')
+          .maybeSingle();
+      if (res == null) return null;
+      return Producto.fromMap(res);
+    }
+
     final result = await _db.query(
       "SELECT * FROM tbl_productos WHERE codigo_barras = @codigo AND estatus::text = 'Activo' LIMIT 1",
       params: {'codigo': codigoBarras.trim()},
@@ -107,6 +153,17 @@ class ProductosRepository {
 
   /// Busca productos cuya descripción contenga [texto] (case-insensitive).
   Future<List<Producto>> buscarPorDescripcion(String texto) async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_productos')
+          .select()
+          .ilike('descripcion', '%${texto.trim()}%')
+          .eq('estatus', 'Activo')
+          .order('descripcion', ascending: true)
+          .limit(50);
+      return (res as List).map((row) => Producto.fromMap(row as Map<String, dynamic>)).toList();
+    }
+
     final result = await _db.query(
       "SELECT * FROM tbl_productos WHERE LOWER(descripcion) LIKE @texto AND estatus::text = 'Activo' ORDER BY descripcion LIMIT 50",
       params: {
@@ -118,6 +175,16 @@ class ProductosRepository {
 
   /// Obtiene productos con existencia por debajo del mínimo (alertas).
   Future<List<Producto>> obtenerBajoStock() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_productos')
+          .select()
+          .eq('usa_inventario', true)
+          .eq('estatus', 'Activo');
+      final list = (res as List).map((row) => Producto.fromMap(row as Map<String, dynamic>)).toList();
+      return list.where((p) => p.existencia <= p.inventarioMinimo).toList();
+    }
+
     final result = await _db.query(
       "SELECT * FROM tbl_productos WHERE usa_inventario = TRUE AND existencia <= inventario_minimo AND estatus::text = 'Activo' ORDER BY existencia",
     );
@@ -130,6 +197,62 @@ class ProductosRepository {
     required DateTime fechaFin,
     int? idDepartamento,
   }) async {
+    final fIni = DateTime(fechaInicio.year, fechaInicio.month, fechaInicio.day, 0, 0, 0).toIso8601String();
+    final fFin = DateTime(fechaFin.year, fechaFin.month, fechaFin.day, 23, 59, 59).toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      var query = _db.supabase
+          .from('tbl_detalle_ventas')
+          .select('cantidad, importe, costo_unitario, tbl_ventas!inner(fecha_venta, estatus_venta), tbl_productos!inner(codigo_barras, descripcion, id_departamento, tbl_departamentos(nombre_departamento))')
+          .eq('tbl_ventas.estatus_venta', 'Completada')
+          .gte('tbl_ventas.fecha_venta', fIni)
+          .lte('tbl_ventas.fecha_venta', fFin);
+
+      if (idDepartamento != null && idDepartamento > 0) {
+        query = query.eq('tbl_productos.id_departamento', idDepartamento);
+      }
+
+      final res = await query;
+      final mapItems = <String, Map<String, dynamic>>{};
+      for (final r in res) {
+        final p = r['tbl_productos'] as Map?;
+        if (p == null) continue;
+        final cod = (p['codigo_barras'] ?? '').toString();
+        final desc = (p['descripcion'] ?? '').toString();
+        final dept = p['tbl_departamentos'] as Map?;
+        final deptoNom = (dept != null ? dept['nombre_departamento'] : null)?.toString() ?? 'Sin Departamento';
+        final cant = parseDecimal(r['cantidad']);
+        final imp = parseDecimal(r['importe']);
+        final cost = parseDecimal(r['costo_unitario']);
+        final util = imp - (cant * cost);
+
+        if (!mapItems.containsKey(cod)) {
+          mapItems[cod] = {
+            'codigo': cod,
+            'descripcion': desc,
+            'departamento': deptoNom,
+            'cantidad': 0.0,
+            'total': 0.0,
+            'utilidad': 0.0,
+          };
+        }
+        mapItems[cod]!['cantidad'] = (mapItems[cod]!['cantidad'] as double) + cant;
+        mapItems[cod]!['total'] = (mapItems[cod]!['total'] as double) + imp;
+        mapItems[cod]!['utilidad'] = (mapItems[cod]!['utilidad'] as double) + util;
+      }
+
+      final items = mapItems.values.map((m) => VentaPorPeriodoItem(
+        codigo: m['codigo'],
+        descripcion: m['descripcion'],
+        departamento: m['departamento'],
+        cantidadVendida: m['cantidad'],
+        totalVendido: m['total'],
+        utilidadEstimada: m['utilidad'],
+      )).toList();
+      items.sort((a, b) => b.totalVendido.compareTo(a.totalVendido));
+      return items;
+    }
+
     String sql = '''
       SELECT p.codigo_barras, p.descripcion,
              COALESCE(d.nombre_departamento, 'Sin Departamento') AS departamento,
@@ -146,8 +269,8 @@ class ProductosRepository {
     ''';
 
     final params = <String, dynamic>{
-      'fIni': DateTime(fechaInicio.year, fechaInicio.month, fechaInicio.day, 0, 0, 0).toIso8601String(),
-      'fFin': DateTime(fechaFin.year, fechaFin.month, fechaFin.day, 23, 59, 59).toIso8601String(),
+      'fIni': fIni,
+      'fFin': fFin,
     };
 
     if (idDepartamento != null && idDepartamento > 0) {
@@ -180,6 +303,34 @@ class ProductosRepository {
 
   /// Obtiene o crea el registro base oculto para artículos comunes no registrados.
   Future<Producto> obtenerOCrearArticuloComun() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_productos')
+          .select()
+          .eq('codigo_barras', 'ART-COMUN')
+          .maybeSingle();
+      if (res != null) {
+        return Producto.fromMap(res);
+      }
+      final deptoRes = await _db.supabase.from('tbl_departamentos').select('id_departamento').limit(1).maybeSingle();
+      final deptoId = deptoRes != null ? parseIntSafe(deptoRes['id_departamento']) : 1;
+      return crear(
+        codigoBarras: 'ART-COMUN',
+        descripcion: 'Artículo Común',
+        idDepartamento: deptoId,
+        tipoVenta: 'Unidad',
+        precioCosto: 0.0,
+        precioVenta: 0.0,
+        usaInventario: false,
+        existencia: 0.0,
+        inventarioMinimo: 0.0,
+        inventarioMaximo: 0.0,
+        aplicaIva: false,
+        tasaIva: 0.0,
+        estatus: 'Inactivo',
+      );
+    }
+
     final res = await _db.query(
       "SELECT * FROM tbl_productos WHERE codigo_barras = 'ART-COMUN' LIMIT 1",
     );
@@ -207,7 +358,7 @@ class ProductosRepository {
     );
   }
 
-  /// Crea un nuevo producto en la BD local.
+  /// Crea un nuevo producto en la BD local o Supabase.
   Future<Producto> crear({
     required String codigoBarras,
     required String descripcion,
@@ -227,6 +378,33 @@ class ProductosRepository {
   }) async {
     final now = DateTime.now().toIso8601String();
     final terminalId = _db.terminalId;
+
+    if (_db.isCloudOnlyMode) {
+      final insertData = {
+        'codigo_barras': codigoBarras.trim(),
+        'descripcion': descripcion.trim(),
+        'id_departamento': idDepartamento,
+        'tipo_venta': tipoVenta,
+        'precio_costo': precioCosto,
+        'precio_venta': precioVenta,
+        'precio_mayoreo': precioMayoreo,
+        'cantidad_mayoreo': cantidadMayoreo,
+        'usa_inventario': usaInventario,
+        'existencia': existencia,
+        'inventario_minimo': inventarioMinimo,
+        'inventario_maximo': inventarioMaximo,
+        'aplica_iva': aplicaIva,
+        'tasa_iva': tasaIva,
+        'estatus': estatus,
+        'fecha_registro': now,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+        'terminal_origen': terminalId,
+      };
+      final res = await _db.supabase.from('tbl_productos').insert(insertData).select().single();
+      dev.log('[ProductosRepository] ✅ Producto creado en Supabase: $codigoBarras');
+      return Producto.fromMap(res);
+    }
 
     final result = await _db.query(
       '''INSERT INTO tbl_productos
@@ -270,6 +448,29 @@ class ProductosRepository {
   /// Actualiza un producto existente y lo marca como no sincronizado.
   Future<void> actualizar(Producto producto) async {
     final now = DateTime.now().toIso8601String();
+
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_productos').update({
+        'codigo_barras': producto.codigoBarras,
+        'descripcion': producto.descripcion,
+        'id_departamento': producto.idDepartamento,
+        'tipo_venta': producto.tipoVenta,
+        'precio_costo': producto.precioCosto,
+        'precio_venta': producto.precioVenta,
+        'precio_mayoreo': producto.precioMayoreo,
+        'cantidad_mayoreo': producto.cantidadMayoreo,
+        'usa_inventario': producto.usaInventario,
+        'existencia': producto.existencia,
+        'inventario_minimo': producto.inventarioMinimo,
+        'inventario_maximo': producto.inventarioMaximo,
+        'aplica_iva': producto.aplicaIva,
+        'tasa_iva': producto.tasaIva,
+        'estatus': producto.estatus,
+        'fecha_actualizacion': now,
+      }).eq('id_producto', producto.idProducto);
+      dev.log('[ProductosRepository] ✅ Producto actualizado en Supabase: ${producto.codigoBarras}');
+      return;
+    }
 
     await _db.query(
       '''UPDATE tbl_productos SET
@@ -321,6 +522,15 @@ class ProductosRepository {
   Future<void> eliminar(int idProducto) async {
     final now = DateTime.now().toIso8601String();
 
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_productos').update({
+        'estatus': 'Inactivo',
+        'fecha_actualizacion': now,
+      }).eq('id_producto', idProducto);
+      dev.log('[ProductosRepository] Producto eliminado en Supabase: $idProducto');
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_productos SET
          estatus = 'Inactivo',
@@ -344,6 +554,80 @@ class ProductosRepository {
     final terminalId = _db.terminalId;
     final now = DateTime.now().toIso8601String();
     int count = 0;
+
+    if (_db.isCloudOnlyMode) {
+      final deptRes = await _db.supabase.from('tbl_departamentos').select('id_departamento, nombre_departamento').eq('estatus', 'Activo');
+      final deptoMap = <String, int>{};
+      for (final r in deptRes) {
+        deptoMap[(r['nombre_departamento'] ?? '').toString().toLowerCase().trim()] = parseIntSafe(r['id_departamento']);
+      }
+
+      for (final reg in registros) {
+        final codigo = (reg['codigo_barras'] ?? '').toString().trim();
+        final desc = (reg['descripcion'] ?? '').toString().trim();
+        if (codigo.isEmpty || desc.isEmpty) continue;
+
+        final deptoNombre = (reg['departamento'] ?? 'General').toString().trim();
+        final deptoNorm = deptoNombre.toLowerCase();
+
+        int idDepto;
+        if (deptoMap.containsKey(deptoNorm)) {
+          idDepto = deptoMap[deptoNorm]!;
+        } else {
+          final nuevoDept = await _db.supabase.from('tbl_departamentos').insert({
+            'nombre_departamento': deptoNombre,
+            'estatus': 'Activo',
+            'fecha_registro': now,
+            'fecha_actualizacion': now,
+            'sincronizado': true,
+            'terminal_origen': terminalId,
+          }).select('id_departamento').single();
+          idDepto = parseIntSafe(nuevoDept['id_departamento']);
+          deptoMap[deptoNorm] = idDepto;
+        }
+
+        final costo = parseDecimal(reg['precio_costo']);
+        final venta = parseDecimal(reg['precio_venta']);
+        final existencia = parseDecimal(reg['existencia']);
+        final min = parseDecimal(reg['inventario_minimo']);
+
+        final prodExist = await _db.supabase.from('tbl_productos').select('id_producto').eq('codigo_barras', codigo).limit(1).maybeSingle();
+
+        if (prodExist != null) {
+          final idProd = parseIntSafe(prodExist['id_producto']);
+          await _db.supabase.from('tbl_productos').update({
+            'descripcion': desc,
+            'id_departamento': idDepto,
+            'precio_costo': costo,
+            'precio_venta': venta,
+            'existencia': existencia,
+            'inventario_minimo': min,
+            'estatus': 'Activo',
+            'fecha_actualizacion': now,
+          }).eq('id_producto', idProd);
+        } else {
+          await _db.supabase.from('tbl_productos').insert({
+            'codigo_barras': codigo,
+            'descripcion': desc,
+            'id_departamento': idDepto,
+            'tipo_venta': 'Unidad',
+            'precio_costo': costo,
+            'precio_venta': venta,
+            'existencia': existencia,
+            'inventario_minimo': min,
+            'usa_inventario': true,
+            'estatus': 'Activo',
+            'fecha_registro': now,
+            'fecha_actualizacion': now,
+            'sincronizado': true,
+            'terminal_origen': terminalId,
+          });
+        }
+        count++;
+      }
+      dev.log('[ProductosRepository] ✅ Importación CSV en Supabase finalizada: $count productos procesados.');
+      return count;
+    }
 
     await _db.transaction((tx) async {
       // 1. Obtener mapa de departamentos existentes

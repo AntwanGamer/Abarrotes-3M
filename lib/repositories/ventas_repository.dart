@@ -55,7 +55,7 @@ class VentasRepository {
     return _instance!;
   }
 
-  /// Registra una venta completa dentro de una transacción ACID:
+  /// Registra una venta completa (en transacción local o directo en Supabase):
   /// 1. Genera `folio_ticket` (ej. `T-000001`) e inserta en `tbl_ventas`.
   /// 2. Inserta cada línea en `tbl_detalle_ventas`.
   /// 3. Inserta cada forma de pago en `tbl_pagos_venta`.
@@ -76,6 +76,146 @@ class VentasRepository {
     final subtotal = lineas.fold(0.0, (acc, l) => acc + l.importe);
     final total = (subtotal - descuentoGlobal + iva).clamp(0.0, double.infinity);
     final terminalId = _db.terminalId;
+
+    if (_db.isCloudOnlyMode) {
+      final now = DateTime.now().toIso8601String();
+
+      // 1. Folio secuencial
+      final lastV = await _db.supabase
+          .from('tbl_ventas')
+          .select('id_venta')
+          .order('id_venta', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      final nextId = (lastV != null ? parseIntSafe(lastV['id_venta']) : 0) + 1;
+      final folioTicket = 'T-${nextId.toString().padLeft(6, '0')}';
+
+      // 2. Insertar venta
+      final ventaInsert = {
+        'folio_ticket': folioTicket,
+        'id_usuario': idUsuario,
+        'id_cliente': idCliente,
+        'id_corte': idCorte,
+        'fecha_venta': now,
+        'subtotal': subtotal,
+        'descuento': descuentoGlobal,
+        'iva': iva,
+        'total': total,
+        'es_credito': esCredito,
+        'estatus_venta': 'Completada',
+        'fecha_registro': now,
+        'fecha_actualizacion': now,
+        'sincronizado': true,
+        'terminal_origen': terminalId,
+      };
+      final ventaRes = await _db.supabase.from('tbl_ventas').insert(ventaInsert).select('id_venta').single();
+      final idVenta = parseIntSafe(ventaRes['id_venta']);
+
+      // 3. Detalle y Kardex
+      for (final linea in lineas) {
+        await _db.supabase.from('tbl_detalle_ventas').insert({
+          'id_venta': idVenta,
+          'id_producto': linea.idProducto,
+          'id_promocion': linea.idPromocion,
+          'descripcion_producto': linea.descripcionProducto,
+          'cantidad': linea.cantidad,
+          'precio_unitario': linea.precioUnitario,
+          'costo_unitario': linea.costoUnitario,
+          'descuento': linea.descuento,
+          'importe': linea.importe,
+          'fecha_registro': now,
+          'sincronizado': true,
+          'terminal_origen': terminalId,
+        });
+
+        final prodRes = await _db.supabase
+            .from('tbl_productos')
+            .select('usa_inventario, existencia')
+            .eq('id_producto', linea.idProducto)
+            .maybeSingle();
+
+        if (prodRes != null) {
+          final usaInv = prodRes['usa_inventario'] == true;
+          if (usaInv) {
+            final existAnt = parseDecimal(prodRes['existencia']);
+            final existNueva = existAnt - linea.cantidad;
+
+            await _db.supabase.from('tbl_movimientos_inventario').insert({
+              'id_producto': linea.idProducto,
+              'id_usuario': idUsuario,
+              'tipo_movimiento': 'Venta',
+              'cantidad': -linea.cantidad,
+              'existencia_anterior': existAnt,
+              'existencia_nueva': existNueva,
+              'id_referencia': idVenta,
+              'motivo': 'Venta $folioTicket',
+              'fecha_registro': now,
+              'fecha_movimiento': now,
+              'fecha_actualizacion': now,
+              'sincronizado': true,
+              'terminal_origen': terminalId,
+            });
+
+            await _db.supabase.from('tbl_productos').update({
+              'existencia': existNueva,
+              'fecha_actualizacion': now,
+            }).eq('id_producto', linea.idProducto);
+          }
+        }
+      }
+
+      // 4. Pagos
+      double efectivoNeto = 0.0;
+      for (final pago in pagos) {
+        final fpRes = await _db.supabase
+            .from('tbl_formas_pago')
+            .select('id_forma_pago')
+            .ilike('nombre_forma_pago', pago.nombreFormaPago.trim())
+            .maybeSingle();
+        final idFormaPago = fpRes != null ? parseIntSafe(fpRes['id_forma_pago']) : 1;
+
+        await _db.supabase.from('tbl_pagos_venta').insert({
+          'id_venta': idVenta,
+          'id_forma_pago': idFormaPago,
+          'monto': pago.monto,
+          'cambio': pago.cambio,
+          'fecha_registro': now,
+          'sincronizado': true,
+          'terminal_origen': terminalId,
+        });
+
+        if (pago.nombreFormaPago.toLowerCase() == 'efectivo') {
+          efectivoNeto += (pago.monto - pago.cambio).clamp(0.0, double.infinity);
+        }
+      }
+
+      // 5. Crédito a cliente
+      if (esCredito && idCliente != null) {
+        final cliRes = await _db.supabase.from('tbl_clientes').select('saldo_actual').eq('id_cliente', idCliente).single();
+        final saldoAct = parseDecimal(cliRes['saldo_actual']);
+        await _db.supabase.from('tbl_clientes').update({
+          'saldo_actual': saldoAct + total,
+          'fecha_actualizacion': now,
+        }).eq('id_cliente', idCliente);
+      }
+
+      // 6. Actualizar corte de caja
+      if (idCorte != null) {
+        final corteRes = await _db.supabase.from('tbl_cortes_caja').select('total_ventas, efectivo_esperado').eq('id_corte', idCorte).maybeSingle();
+        if (corteRes != null) {
+          final tVentas = parseDecimal(corteRes['total_ventas']);
+          final eEsperado = parseDecimal(corteRes['efectivo_esperado']);
+          await _db.supabase.from('tbl_cortes_caja').update({
+            'total_ventas': tVentas + total,
+            'efectivo_esperado': eEsperado + efectivoNeto,
+            'fecha_actualizacion': now,
+          }).eq('id_corte', idCorte);
+        }
+      }
+
+      dev.log('[VentasRepository] ✅ Venta en Supabase $folioTicket (#$idVenta) registrada (\$$total).');
+      return idVenta;
+    }
 
     return _db.transaction<int>((session) async {
       // 1. Generar folio_ticket secuencial
@@ -259,8 +399,19 @@ class VentasRepository {
     });
   }
 
-  /// Obtiene las ventas del día desde PostgreSQL local.
+  /// Obtiene las ventas del día desde PostgreSQL local o Supabase.
   Future<List<Venta>> obtenerVentasDelDia() async {
+    if (_db.isCloudOnlyMode) {
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day).toIso8601String();
+      final res = await _db.supabase
+          .from('tbl_ventas')
+          .select()
+          .gte('fecha_venta', todayStart)
+          .order('fecha_venta', ascending: false);
+      return (res as List).map((row) => Venta.fromMap(row as Map<String, dynamic>)).toList();
+    }
+
     final result = await _db.query(
       '''SELECT * FROM tbl_ventas
          WHERE DATE(fecha_venta) = CURRENT_DATE
@@ -271,6 +422,15 @@ class VentasRepository {
 
   /// Obtiene el detalle de líneas de una venta específica.
   Future<List<VentaDetalle>> obtenerDetalle(int idVenta) async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_detalle_ventas')
+          .select()
+          .eq('id_venta', idVenta)
+          .order('id_detalle_venta', ascending: true);
+      return (res as List).map((row) => VentaDetalle.fromMap(row as Map<String, dynamic>)).toList();
+    }
+
     final result = await _db.query(
       'SELECT * FROM tbl_detalle_ventas WHERE id_venta = @id ORDER BY id_detalle_venta',
       params: {'id': idVenta},
@@ -280,6 +440,16 @@ class VentasRepository {
 
   /// Cancela una venta y marca `sincronizado = false`.
   Future<void> cancelarVenta(int idVenta, {String motivo = 'Cancelada en caja'}) async {
+    if (_db.isCloudOnlyMode) {
+      await _db.supabase.from('tbl_ventas').update({
+        'estatus_venta': 'Cancelada',
+        'motivo_cancelacion': motivo,
+        'fecha_actualizacion': DateTime.now().toIso8601String(),
+      }).eq('id_venta', idVenta);
+      dev.log('[VentasRepository] Venta cancelada en Supabase: #$idVenta');
+      return;
+    }
+
     await _db.query(
       '''UPDATE tbl_ventas SET
          estatus_venta = 'Cancelada',
@@ -305,6 +475,91 @@ class VentasRepository {
     String motivo = 'Devolución / Cancelación en caja',
   }) async {
     final terminalId = _db.terminalId;
+
+    if (_db.isCloudOnlyMode) {
+      final now = DateTime.now().toIso8601String();
+      final vRes = await _db.supabase.from('tbl_ventas').select().eq('id_venta', idVenta).maybeSingle();
+      if (vRes == null) throw Exception('Venta no encontrada');
+      if (vRes['estatus_venta'] == 'Cancelada') {
+        throw Exception('La venta ya se encuentra cancelada.');
+      }
+      final total = parseDecimal(vRes['total']);
+      final esCredito = vRes['es_credito'] == true;
+      final idCliente = vRes['id_cliente'] != null ? parseIntSafe(vRes['id_cliente']) : null;
+      final idCorte = vRes['id_corte'] != null ? parseIntSafe(vRes['id_corte']) : null;
+
+      await _db.supabase.from('tbl_ventas').update({
+        'estatus_venta': 'Cancelada',
+        'motivo_cancelacion': motivo,
+        'fecha_actualizacion': now,
+      }).eq('id_venta', idVenta);
+
+      final detRes = await _db.supabase.from('tbl_detalle_ventas').select().eq('id_venta', idVenta);
+      for (final m in detRes) {
+        final idProd = parseIntSafe(m['id_producto']);
+        final cant = parseDecimal(m['cantidad']);
+        final prod = await _db.supabase.from('tbl_productos').select('usa_inventario, existencia').eq('id_producto', idProd).maybeSingle();
+        if (prod != null && prod['usa_inventario'] == true) {
+          final existAnt = parseDecimal(prod['existencia']);
+          final existNueva = existAnt + cant;
+          await _db.supabase.from('tbl_productos').update({
+            'existencia': existNueva,
+            'fecha_actualizacion': now,
+          }).eq('id_producto', idProd);
+
+          await _db.supabase.from('tbl_movimientos_inventario').insert({
+            'id_producto': idProd,
+            'tipo_movimiento': 'Cancelacion',
+            'cantidad': cant,
+            'id_usuario': idUsuario,
+            'motivo': motivo,
+            'existencia_anterior': existAnt,
+            'existencia_nueva': existNueva,
+            'id_referencia': idVenta,
+            'fecha_movimiento': now,
+            'fecha_registro': now,
+            'fecha_actualizacion': now,
+            'sincronizado': true,
+            'terminal_origen': terminalId,
+          });
+        }
+      }
+
+      if (esCredito && idCliente != null) {
+        final cRes = await _db.supabase.from('tbl_clientes').select('saldo_actual').eq('id_cliente', idCliente).single();
+        final act = parseDecimal(cRes['saldo_actual']);
+        await _db.supabase.from('tbl_clientes').update({
+          'saldo_actual': (act - total) < 0 ? 0.0 : (act - total),
+          'fecha_actualizacion': now,
+        }).eq('id_cliente', idCliente);
+      }
+
+      if (idCorte != null) {
+        final pagosRes = await _db.supabase.from('tbl_pagos_venta').select('monto, cambio, tbl_formas_pago(nombre_forma_pago)').eq('id_venta', idVenta);
+        double efe = 0.0;
+        for (final p in pagosRes) {
+          final fp = p['tbl_formas_pago'];
+          final fpNom = (fp is Map ? fp['nombre_forma_pago'] : null)?.toString() ?? '';
+          if (fpNom.toLowerCase().contains('efectivo')) {
+            efe += (parseDecimal(p['monto']) - parseDecimal(p['cambio'])).clamp(0.0, double.infinity);
+          }
+        }
+
+        final corte = await _db.supabase.from('tbl_cortes_caja').select('total_ventas, efectivo_esperado').eq('id_corte', idCorte).maybeSingle();
+        if (corte != null) {
+          final tV = parseDecimal(corte['total_ventas']);
+          final eE = parseDecimal(corte['efectivo_esperado']);
+          await _db.supabase.from('tbl_cortes_caja').update({
+            'total_ventas': (tV - total) < 0 ? 0.0 : (tV - total),
+            'efectivo_esperado': (eE - efe) < 0 ? 0.0 : (eE - efe),
+            'fecha_actualizacion': now,
+          }).eq('id_corte', idCorte);
+        }
+      }
+
+      dev.log('[VentasRepository] ✅ Venta #$idVenta cancelada en Supabase con devolución de inventario');
+      return;
+    }
 
     await _db.transaction((session) async {
       final vRes = await session.execute(
@@ -422,6 +677,43 @@ class VentasRepository {
 
   /// Consulta la última venta completada con su detalle y pagos para reimpresión.
   Future<Map<String, dynamic>?> obtenerUltimaVentaCompletada() async {
+    if (_db.isCloudOnlyMode) {
+      final res = await _db.supabase
+          .from('tbl_ventas')
+          .select('*, tbl_usuarios(nombre_completo, nombre_usuario), tbl_clientes(nombre)')
+          .eq('estatus_venta', 'Completada')
+          .order('id_venta', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (res == null) return null;
+      final ventaMap = Map<String, dynamic>.from(res);
+      final idVenta = parseIntSafe(ventaMap['id_venta']);
+      final detalles = await obtenerDetalle(idVenta);
+      final pagosRes = await _db.supabase
+          .from('tbl_pagos_venta')
+          .select('*, tbl_formas_pago(nombre_forma_pago)')
+          .eq('id_venta', idVenta);
+
+      final u = ventaMap['tbl_usuarios'];
+      final c = ventaMap['tbl_clientes'];
+
+      return {
+        'venta': Venta.fromMap(ventaMap),
+        'usuario_nombre': (u is Map ? (u['nombre_completo'] ?? u['nombre_usuario']) : null)?.toString() ?? 'Cajero',
+        'cliente_nombre': (c is Map ? c['nombre'] : null)?.toString() ?? 'Público General',
+        'detalles': detalles,
+        'pagos': (pagosRes as List).map((r) {
+          final m = Map<String, dynamic>.from(r as Map);
+          final fp = m['tbl_formas_pago'];
+          if (fp is Map && fp['nombre_forma_pago'] != null) {
+            m['nombre_forma_pago'] = fp['nombre_forma_pago'];
+          }
+          return m;
+        }).toList(),
+      };
+    }
+
     final res = await _db.query(
       '''SELECT v.*, u.nombre_completo AS usuario_nombre, c.nombre AS cliente_nombre
          FROM tbl_ventas v
